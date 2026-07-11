@@ -1,0 +1,39 @@
+# Готовый конфиг под твой текущий проект (адаптация старого config.yaml).
+# Пути возьми свои, если проект переехал.
+
+projects:
+  - name: mishin-coil-gen-v1
+    kicad_project: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/mishin-coil-gen-v1.kicad_pro"
+    netlist: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/mishin-coil-gen-v1.net"
+    output_dir: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/out"
+
+output:
+  formats: [txt, json]
+  raw_txt_copy: false
+  diff: true
+
+classification:
+  power_patterns:
+    - "(?i)^GND$"
+    - "(?i)^\\+?\\d+V\\d*"
+    - "(?i)VCC|VDD|VEE|VSS"
+  suspicious_patterns:
+    - "(?i)net-\\("
+    - "(?i)[+-]\\d+v"
+    - "(?i)clk|clock"
+    - "(?i)pwr|vcc|vdd|vee"
+
+watch:
+  enabled: true
+  debounce_sec: 1.0
+  settle_delay_sec: 0.2
+
+logging:
+  level: INFO
+  file: "kicad_net_exporter.log"
+  max_bytes: 1048576
+  backup_count: 3
+  console: true
+
+tray:
+  enabled: true

@@ -1,0 +1,48 @@
+# Единый конфиг KiCad Net Exporter.
+# Заменяет старую пару config.yaml (аудит) + config.yml (вотчер).
+
+# Список проектов, за которыми следим. Можно указать несколько — например,
+# если параллельно ведёшь пару плат.
+projects:
+  - name: my-board                      # опционально; по умолчанию — имя .net без расширения
+    kicad_project: "D:/Projects/KiCad/MyBoard/my-board.kicad_pro"
+    netlist: "D:/Projects/KiCad/MyBoard/my-board.net"
+    output_dir: "D:/Projects/KiCad/MyBoard/out"   # опционально; по умолчанию <netlist>/../out
+
+# Какие форматы отчётов генерировать. txt — для человека, json — для
+# скриптов/ИИ, md — то же самое, что txt, но с markdown-разметкой.
+output:
+  formats: [txt, json]
+  raw_txt_copy: false   # копировать *.net -> *.txt как есть (с сохранением mtime), напр. для DeepSeek
+  diff: true             # писать <base>_diff.* с изменениями от прошлого прогона
+
+# Паттерны, определяющие "служебные" категории цепей. Не хардкод в коде —
+# правишь тут, без правки Python.
+classification:
+  power_patterns:
+    - "(?i)^GND$"
+    - "(?i)^\\+?\\d+V\\d*"
+    - "(?i)VCC|VDD|VEE|VSS"
+  suspicious_patterns:          # цепи в классе Default, которые стоит проверить руками
+    - "(?i)net-\\("
+    - "(?i)[+-]\\d+v"
+    - "(?i)clk|clock"
+    - "(?i)pwr|vcc|vdd|vee"
+
+# Слежение за файлами (.net и .kicad_pro каждого проекта).
+watch:
+  enabled: true
+  debounce_sec: 1.0        # игнорировать повторные события за это время (дребезг сохранения)
+  settle_delay_sec: 0.2    # пауза перед чтением файла (дать KiCad дописать)
+
+# Логирование в файл с ротацией (нужен файл, т.к. pythonw без консоли).
+logging:
+  level: INFO
+  file: "kicad_net_exporter.log"   # относительный путь — считается от файла конфига
+  max_bytes: 1048576
+  backup_count: 3
+  console: true                     # выключи для pythonw (консоли всё равно нет)
+
+# Иконка в трее.
+tray:
+  enabled: true

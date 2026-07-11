@@ -1,0 +1,5 @@
+sexpdata>=1.0.0
+PyYAML>=6.0
+watchdog>=4.0
+pystray>=0.19
+pillow>=10.0
