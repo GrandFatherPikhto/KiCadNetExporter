@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from ...core.models import NetClassDef, NetClassPattern
+from .._retry import retry_on_transient_read
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +42,32 @@ def _num(c: dict, key: str) -> float | None:
         return None
 
 
+def _load(path: str) -> dict:
+    """
+    Читает и парсит .kicad_pro с защитой от гонки: watcher/первичный прогон
+    могут поймать файл в момент, когда KiCad (или синхронизация облака) его
+    ещё дописывает. Поймано вживую: json.load падал с "Expecting value:
+    line 1 column 1 (char 0)" на файле, который через долю секунды
+    прекрасно парсился.
+    """
+    p = Path(path)
+
+    def _attempt() -> dict:
+        text = p.read_text(encoding="utf-8")
+        if not text.strip():
+            raise ValueError("файл прочитан пустым")
+        return json.loads(text)
+
+    return retry_on_transient_read(
+        _attempt, (ValueError, json.JSONDecodeError), what=f"чтение {p.name}"
+    )
+
+
 class KiCadProParser:
     """Реализует core.interfaces.ProjectParser для файлов .kicad_pro."""
 
-    def _load(self, path: str) -> dict:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-
     def parse_classes(self, path: str) -> list[NetClassDef]:
-        pro = self._load(path)
+        pro = _load(path)
         classes = pro.get("net_settings", {}).get("classes", [])
         return [
             NetClassDef(
@@ -61,7 +79,7 @@ class KiCadProParser:
         ]
 
     def parse_patterns(self, path: str) -> list[NetClassPattern]:
-        pro = self._load(path)
+        pro = _load(path)
         ns = pro.get("net_settings", {})
         raw_patterns = ns.get("netclass_patterns", [])
         known_classes = {c["name"] for c in ns.get("classes", [])}

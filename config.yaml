@@ -6,6 +6,10 @@ projects:
     kicad_project: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/mishin-coil-gen-v1.kicad_pro"
     netlist: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/mishin-coil-gen-v1.net"
     output_dir: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/out"
+  - name: trig_ne555
+    kicad_project: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/trig_ne555.kicad_pro"
+    netlist: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/trig_ne555.net"
+    output_dir: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/out"
 
 output:
   formats: [txt, json]

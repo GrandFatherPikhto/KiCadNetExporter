@@ -31,6 +31,7 @@ import sexpdata
 from sexpdata import Symbol
 
 from ...core.models import Component, Net, NetlistDocument, PinConnection
+from .._retry import retry_on_transient_read
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,23 @@ def _top_section(tree: list, name: str) -> list:
     return sec[1:] if sec else []
 
 
+def _load_tree(p: Path) -> list:
+    """
+    Читает и парсит .net с защитой от гонки: watcher/первичный прогон могут
+    поймать файл в момент, когда KiCad его ещё дописывает. sexpdata на
+    неполном/пустом вводе кидает то AssertionError, то AttributeError —
+    непредсказуемо, поэтому ловим широко (Exception), но только вот в этом
+    узком месте, а не во всём parse().
+    """
+    def _attempt() -> list:
+        text = p.read_text(encoding="utf-8", errors="replace")
+        if not text.strip():
+            raise ValueError("файл прочитан пустым")
+        return sexpdata.loads(text)
+
+    return retry_on_transient_read(_attempt, (Exception,), what=f"чтение {p.name}")
+
+
 class KiCadNetParser:
     """
     Реализует core.interfaces.NetlistParser для файлов .net (экспорт EESCHEMA),
@@ -86,9 +104,7 @@ class KiCadNetParser:
 
     def parse(self, path: str) -> NetlistDocument:
         p = Path(path)
-        with open(p, encoding="utf-8", errors="replace") as f:
-            text = f.read()
-        tree = sexpdata.loads(text)
+        tree = _load_tree(p)
 
         components: dict[str, Component] = {}
         for comp_node in _top_section(tree, "components"):
