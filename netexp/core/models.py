@@ -59,6 +59,21 @@ class Net:
 class NetClassDef:
     name: str
     priority: int
+    # Правила трассировки из Board Setup (net_settings.classes в .kicad_pro).
+    # Optional и None по умолчанию: не все поля есть во всех версиях KiCad
+    # и не все классы их задают явно — парсер не должен падать из-за этого,
+    # он просто оставит None там, где поля не было.
+    track_width: Optional[float] = None
+    clearance: Optional[float] = None
+    via_diameter: Optional[float] = None
+    via_drill: Optional[float] = None
+    microvia_diameter: Optional[float] = None
+    microvia_drill: Optional[float] = None
+    diff_pair_width: Optional[float] = None
+    diff_pair_gap: Optional[float] = None
+    diff_pair_via_gap: Optional[float] = None
+    bus_width: Optional[float] = None
+    wire_width: Optional[float] = None
 
 
 @dataclass

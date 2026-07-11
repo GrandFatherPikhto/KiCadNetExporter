@@ -18,6 +18,28 @@ logger = logging.getLogger(__name__)
 # (напр. "\CLK.*") — для re это не нужно, но сам KiCad это проглатывает.
 _BAD_ESCAPE_RE = re.compile(r"\\([CLIMRXYZ])")
 
+# Правила трассировки, которые кладём в NetClassDef -- имя поля в JSON
+# .kicad_pro совпадает с именем атрибута в core.models.NetClassDef 1:1,
+# так что просто перечисляем ключи, а не пишем 11 одинаковых строк руками.
+_RULE_FIELDS = (
+    "track_width", "clearance", "via_diameter", "via_drill",
+    "microvia_diameter", "microvia_drill",
+    "diff_pair_width", "diff_pair_gap", "diff_pair_via_gap",
+    "bus_width", "wire_width",
+)
+
+
+def _num(c: dict, key: str) -> float | None:
+    """Аккуратно достаёт число из класса: KiCad может не писать поле вовсе
+    (старая версия, кастомный класс) — тогда просто None, без падения."""
+    v = c.get(key)
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
 
 class KiCadProParser:
     """Реализует core.interfaces.ProjectParser для файлов .kicad_pro."""
@@ -30,7 +52,11 @@ class KiCadProParser:
         pro = self._load(path)
         classes = pro.get("net_settings", {}).get("classes", [])
         return [
-            NetClassDef(name=c["name"], priority=c.get("priority", 2**31 - 1))
+            NetClassDef(
+                name=c["name"],
+                priority=c.get("priority", 2**31 - 1),
+                **{field: _num(c, field) for field in _RULE_FIELDS},
+            )
             for c in classes
         ]
 

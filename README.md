@@ -92,7 +92,9 @@ pythonw -m netexp.app.main config.yaml
 - `<name>_unconnected.*` — unconnected/no-connect цепи (раньше просто выкидывались).
 - `<name>_power.*` — цепи питания (по `power_patterns` из конфига).
 - `<name>_audit.*` — отчёт по классам сетей: кто куда попал, overlaps, что
-  осталось в Default и что из этого подозрительно.
+  осталось в Default и что из этого подозрительно, плюс правила трассировки
+  каждого класса (track_width/clearance/via/diff-pair из Board Setup) —
+  чтобы не проверять глазами в KiCad, действительно ли у PA_Signal 2.0 мм.
 - `<name>_patterns.*` — дамп самих netclass-паттернов из `.kicad_pro` с
   предупреждениями (лишний бэкслеш, ссылка на необъявленный класс).
 - `<name>_diff.*` — что изменилось со времени прошлого прогона.
