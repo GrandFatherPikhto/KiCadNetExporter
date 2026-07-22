@@ -60,6 +60,9 @@ fp-info-cache
 *.app
 
 *.zip
+*.txt
+
+zip_project.yaml
 
 arch/
 test_sample/

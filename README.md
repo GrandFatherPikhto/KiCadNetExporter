@@ -60,19 +60,19 @@ pip install -r requirements.txt
 
 Разовый прогон (без вотчера и трея), удобно проверить конфиг:
 
-```
+```bash
 python -m netexp.app.main config.yaml --once
 ```
 
 Фоновый режим (вотчер + трей), для разработки — с консолью:
 
-```
+```bash
 python -m netexp.app.main config.yaml
 ```
 
 Для реального фонового запуска на Windows — без консоли:
 
-```
+```bash
 pythonw -m netexp.app.main config.yaml
 ```
 

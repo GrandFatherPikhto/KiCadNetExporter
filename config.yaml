@@ -10,6 +10,10 @@ projects:
     kicad_project: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/trig_ne555.kicad_pro"
     netlist: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/trig_ne555.net"
     output_dir: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/out"
+  - name: 10CL006_power
+    kicad_project: "D:/Projects/Python/KiCadSpoke/test_boards/Power/Power.kicad_pro"
+    netlist: "D:/Projects/Python/KiCadSpoke/test_boards/Power/Power.net"
+    output_dir: "D:/Projects/Python/KiCadSpoke/test_boards/Power/out"
 
 output:
   formats: [txt, json]
