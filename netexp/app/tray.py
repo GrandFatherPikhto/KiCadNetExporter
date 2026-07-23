@@ -40,7 +40,16 @@ def _open_path(path: Path) -> None:
         logger.exception("Не удалось открыть %s", path)
 
 
-def run_tray(config: AppConfig, stop_flag: threading.Event, paused: threading.Event, log_path: Path | None) -> None:
+def build_icon(config: AppConfig, stop_flag: threading.Event, paused: threading.Event,
+               log_path: Path | None) -> pystray.Icon:
+    """
+    Вынесено из run_tray отдельно — нужно создать Icon ДО запуска потока
+    watcher'а, чтобы передать в него ссылку на icon и звать icon.notify()
+    прямо из watcher-потока при обнаружении устаревшего нетлиста (см.
+    watcher.py: on_stale колбэк). pystray.notify() — обычная нативная
+    ОС-нотификация, вызов из чужого потока штатно поддерживается на всех
+    трёх бэкендах (win32/appindicator/darwin).
+    """
     def on_open_outputs(icon, item):
         for project in config.projects:
             _open_path(Path(project.output_dir))
@@ -68,5 +77,8 @@ def run_tray(config: AppConfig, stop_flag: threading.Event, paused: threading.Ev
         pystray.MenuItem("Пауза", on_toggle_pause, checked=lambda item: paused.is_set()),
         pystray.MenuItem("Выход", on_exit),
     )
-    icon = pystray.Icon("kicad-net-exporter", _make_icon_image(), "KiCad Net Exporter", menu)
-    icon.run()
+    return pystray.Icon("kicad-net-exporter", _make_icon_image(), "KiCad Net Exporter", menu)
+
+
+def run_tray(config: AppConfig, stop_flag: threading.Event, paused: threading.Event, log_path: Path | None) -> None:
+    build_icon(config, stop_flag, paused, log_path).run()

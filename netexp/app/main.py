@@ -41,24 +41,29 @@ def main() -> None:
     stop_flag = threading.Event()
     paused = threading.Event()
 
+    icon = None
+    if config.tray.enabled and not args.no_tray:
+        try:
+            from .tray import build_icon
+            icon = build_icon(config, stop_flag, paused, log_path)
+        except Exception:
+            logger.exception("Не удалось создать иконку в трее — работаю без неё")
+
+    def on_stale(project_name: str, message: str) -> None:
+        if icon is not None:
+            try:
+                icon.notify(message, f"Нетлист устарел: {project_name}")
+            except Exception:
+                logger.exception("Не удалось показать уведомление трея")
+
     watch_thread = threading.Thread(
-        target=run_watch_loop, args=(config, stop_flag, paused), daemon=True
+        target=run_watch_loop, args=(config, stop_flag, paused, on_stale), daemon=True
     )
     watch_thread.start()
     logger.info("Наблюдатель запущен")
 
-    if config.tray.enabled and not args.no_tray:
-        try:
-            from .tray import run_tray  # импорт тоже может упасть (нет GUI-бэкенда) — ловим и его
-
-            run_tray(config, stop_flag, paused, log_path)
-        except Exception:
-            logger.exception("Не удалось запустить иконку в трее — работаю без неё")
-            try:
-                while not stop_flag.is_set():
-                    stop_flag.wait(1)
-            except KeyboardInterrupt:
-                stop_flag.set()
+    if icon is not None:
+        icon.run()
     else:
         try:
             while not stop_flag.is_set():
