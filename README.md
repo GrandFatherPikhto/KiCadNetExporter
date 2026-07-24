@@ -134,3 +134,9 @@ unconnected и power цепи, компонент без footprint, «плохо
 - IPC API KiCad (`kipy`) в 9-й и 10-й версии не поддерживает схемный редактор
   — источник данных для нетлиста/BOM/netclass остаётся файловым (`.net` +
   `.kicad_pro`) на неопределённый срок.
+
+## Создание установщика
+
+```bash
+pyinstaller --onefile --name KiCadNetExporter --paths . --distpath "D:\Utils" run.py
+```

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="KiCad Net Exporter — упрощение и аудит нетлистов")
-    ap.add_argument("config", help="Путь к YAML-конфигу")
+    ap.add_argument("config", nargs='?', default="KiCadNetExporter.yaml", help="Путь к YAML-конфигу")
     ap.add_argument("--once", action="store_true", help="Прогнать все проекты один раз и выйти (без watch/трея)")
     ap.add_argument("--no-tray", action="store_true", help="Не показывать иконку в трее")
     args = ap.parse_args()
