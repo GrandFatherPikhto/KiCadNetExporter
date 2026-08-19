@@ -1,153 +1,154 @@
 # KiCad Net Exporter
 
-Упрощает и уплощает нетлист KiCad (в т.ч. иерархических проектов) до
-читаемого человеком и ИИ вида, аудирует netclass-классификацию цепей,
-следит за файлами проекта в фоне и кладёт отчёты рядом с проектом.
+Simplifies and flattens KiCad netlists (including hierarchical projects) into a
+form readable by both humans and AI, audits netclass classification of nets,
+watches project files in the background, and places reports next to the project.
 
-## Архитектура
+> **[README на русском](README_ru.md)**
+
+## Architecture
 
 ```
 netexp/
-  core/    — модели данных и протоколы (Component, Net, PinConnection, NetlistDocument...).
-             Ничего не знает про YAML/sexpdata/watchdog. Поля намеренно повторяют
-             форму NetlistDocument/Component/Net/PinConnection из сестринского
-             C#-проекта NetFileConverter.Core — при желании JSON одного инструмента
-             читается другим.
-  infra/   — реализации: парсер .net (sexpdata + своя семантика), парсер .kicad_pro (json),
-             классификатор netclass, генераторы отчётов.
-  app/     — конфиг, логирование, watcher, трей, точка входа.
+  core/    — data models and protocols (Component, Net, PinConnection, NetlistDocument...).
+             Knows nothing about YAML/sexpdata/watchdog. The fields intentionally mirror
+             NetlistDocument/Component/Net/PinConnection from the sibling C# project
+             NetFileConverter.Core — the JSON produced by one tool can in principle be
+             read by the other.
+  infra/   — implementations: .net parser (sexpdata + custom semantics), .kicad_pro parser (json),
+             netclass classifier, report generators.
+  app/     — config, logging, watcher, tray, entry point.
 ```
 
-Если завтра появится (или починят) IPC API KiCad для схемного редактора —
-меняется только infra/parsers, остальной код работает через протоколы
-из core/interfaces.py и не тронется.
+If a KiCad IPC API for the schematic editor appears (or gets fixed) tomorrow,
+only `infra/parsers` changes; the rest of the code works through the protocols
+in `core/interfaces.py` and stays untouched.
 
-## Установка
+## Installation
 
 ```
 pip install -r requirements.txt
 ```
 
-(на Windows для автозапуска без консоли используется `pythonw.exe`, а не `python.exe`)
+(on Windows, use `pythonw.exe` instead of `python.exe` for console-less autostart)
 
-## Конфиг
+## Configuration
 
-Один YAML-файл на все проекты. Смотри `config.example.yaml` — там подробные
-комментарии по каждой секции. `config.yaml` в этой же папке уже настроен
-под mishin-coil-gen-v1 — поправь пути, если проект переехал.
+A single YAML file covers all projects. See `config.example.yaml` for detailed
+comments on every section. `config.yaml` in the same folder is already set up
+for mishin-coil-gen-v1 — adjust the paths if the project moved.
 
-Коротко:
+In short:
 
-- `projects` — список пар (.kicad_pro + .net) с папкой вывода. Можно несколько.
-- `output.formats` — какие форматы писать: `txt` (человеку), `json` (скриптам/ИИ),
-  `md` (то же, что txt, с markdown-разметкой).
-- `output.raw_txt_copy` — если true, рядом с отчётами появляется точная копия
-  `*.net` под именем `*.txt` (с сохранением времени изменения) — для инструментов
-  вроде DeepSeek, которые не понимают расширение `.net`.
-- `output.diff` — писать `<project>_diff.*` с изменениями от прошлого прогона
-  (сами остальные отчёты при этом не диффятся, а просто перезаписываются целиком).
-- `classification.power_patterns` / `suspicious_patterns` — regex-списки для
-  детекта цепей питания и "подозрительных" цепей класса Default. Правишь тут,
-  без правки кода.
-- `watch` — задержки антидребезга.
-- `logging` — уровень/файл/ротация. Лог-файл лучше не класть в ту же папку,
-  что и отслеживаемые `.net`/`.kicad_pro` (не критично для правильности, но
-  на некоторых сетевых/синхронизируемых дисках лишние события лога могут
-  тормозить наблюдатель).
-- `tray.enabled` — иконка в трее.
+- `projects` — list of (.kicad_pro + .net) pairs with an output folder. Multiple allowed.
+- `output.formats` — which formats to write: `txt` (for humans), `json` (for scripts/AI),
+  `md` (same as txt, but with markdown formatting).
+- `output.raw_txt_copy` — if true, an exact copy of `*.net` is placed next to the reports
+  under the name `*.txt` (preserving the modification time) — for tools like DeepSeek
+  that don't understand the `.net` extension.
+- `output.diff` — write `<project>_diff.*` with changes since the last run
+  (the other reports themselves are not diffed — they are simply overwritten in full).
+- `classification.power_patterns` / `suspicious_patterns` — regex lists for
+  detecting power nets and "suspicious" Default-class nets. Edit them here,
+  no code changes needed.
+- `watch` — debounce delays.
+- `logging` — level/file/rotation. It's better not to put the log file in the same folder
+  as the watched `.net`/`.kicad_pro` (not critical for correctness, but on some
+  network/synced drives extra log events can slow down the watcher).
+- `tray.enabled` — system tray icon.
 
-## Запуск
+## Running
 
-Разовый прогон (без вотчера и трея), удобно проверить конфиг:
+One-off run (no watcher, no tray), handy for checking the config:
 
 ```bash
 python -m netexp.app.main config.yaml --once
 ```
 
-Фоновый режим (вотчер + трей), для разработки — с консолью:
+Background mode (watcher + tray), for development — with a console:
 
 ```bash
 python -m netexp.app.main config.yaml
 ```
 
-Для реального фонового запуска на Windows — без консоли:
+For a real background run on Windows — without a console:
 
 ```bash
 pythonw -m netexp.app.main config.yaml
 ```
 
-Из трея: открыть папку(и) вывода, открыть лог, поставить на паузу, выйти.
+From the tray: open the output folder(s), open the log, pause, exit.
 
-Автозапуск при входе в Windows — самое простое: ярлык на
-`pythonw.exe -m netexp.app.main C:\путь\к\config.yaml` в папке
-`shell:startup`.
+Autostart at Windows login — the simplest way: a shortcut to
+`pythonw.exe -m netexp.app.main C:\path\to\config.yaml` in the
+`shell:startup` folder.
 
-## Что генерируется в output_dir
+## What gets generated in output_dir
 
-Для каждого проекта, для каждого включённого формата (`txt`/`json`/`md`):
+For each project, for each enabled format (`txt`/`json`/`md`):
 
-- `<name>_net.*` — упрощённый нетлист деревом по листам иерархии, полное
-  имя цепи и её netclass показаны всегда.
-- `<name>_bom.*` — спецификация компонентов, отдельно подсвечены отсутствующие footprint.
-- `<name>_unconnected.*` — unconnected/no-connect цепи (раньше просто выкидывались).
-- `<name>_power.*` — цепи питания (по `power_patterns` из конфига).
-- `<name>_audit.*` — отчёт по классам сетей: кто куда попал, overlaps, что
-  осталось в Default и что из этого подозрительно, плюс правила трассировки
-  каждого класса (track_width/clearance/via/diff-pair из Board Setup) —
-  чтобы не проверять глазами в KiCad, действительно ли у PA_Signal 2.0 мм.
-- `<name>_patterns.*` — дамп самих netclass-паттернов из `.kicad_pro` с
-  предупреждениями (лишний бэкслеш, ссылка на необъявленный класс).
-- `<name>_diff.*` — что изменилось со времени прошлого прогона.
-- `<name>.txt` — точная копия `.net` (только если `raw_txt_copy: true`).
-- `.snapshot_<name>.json` — служебный файл для diff, не трогать руками.
+- `<name>_net.*` — simplified netlist as a tree by hierarchy sheets; the full
+  net name and its netclass are always shown.
+- `<name>_bom.*` — bill of materials; missing footprints are highlighted separately.
+- `<name>_unconnected.*` — unconnected/no-connect nets (previously just dropped).
+- `<name>_power.*` — power nets (per `power_patterns` from the config).
+- `<name>_audit.*` — net class report: what went where, overlaps, what is left
+  in Default and what of that is suspicious, plus each class's routing rules
+  (track_width/clearance/via/diff-pair from Board Setup) — so you don't have to
+  check in KiCad by eye whether PA_Signal really is 2.0 mm.
+- `<name>_patterns.*` — dump of the netclass patterns from `.kicad_pro` with
+  warnings (extra backslash, reference to an undeclared class).
+- `<name>_diff.*` — what changed since the previous run.
+- `<name>.txt` — exact copy of `.net` (only when `raw_txt_copy: true`).
+- `.snapshot_<name>.json` — internal file for diff, don't touch it by hand.
 
-## Тесты
+## Tests
 
-Юнит-тесты на `pytest` лежат в `tests/` и покрывают модели, парсеры
-(`.net`/`.kicad_pro`), классификацию, все генераторы отчётов и app-слой
-(конфиг, pipeline, watcher, логирование). Синтетические данные для тестов
-генерируются в `tests/data.py`.
+Unit tests (`pytest`) live in `tests/` and cover models, parsers
+(`.net`/`.kicad_pro`), classification, all report generators, and the app layer
+(config, pipeline, watcher, logging). Synthetic test data is generated in `tests/data.py`.
 
 ```bash
 pip install pytest
 python -m pytest
 ```
 
-## Пример / тест на своих данных
+## Sample / test on your own data
 
-В `test_sample/` — синтетический иерархический проект (демонстрирует листы,
-unconnected и power цепи, компонент без footprint, «плохой» escape в паттерне
-и ссылку на необъявленный класс) и уже прогнанный `out/` с примерами всех
-отчётов. Смотри `test_sample/config.yaml` как референс.
+`test_sample/` contains a synthetic hierarchical project (demonstrating sheets,
+unconnected and power nets, a component without a footprint, a "bad" escape in a
+pattern, and a reference to an undeclared class) plus an already-run `out/` with
+examples of every report. Use `test_sample/config.yaml` as a reference.
 
-## Проверено на реальном проекте
+## Verified on a real project
 
-Прогнано на mishin-coil-gen-v1 (KiCad 10.0.4, иерархический, 322 компонента,
-221 цепь, 17 netclass-ов) — разобралось и классифицировалось полностью, 0
-цепей осталось в Default. Кстати, парсер `.net` сначала был на `kinparse`
-(специализированная pyparsing-грамматика) — на этом же проекте она падала:
-секция `design` в KiCad 10 содержит по `(sheet ...)`/`(title_block ...)` на
-каждый лист иерархии, а грамматика этого не ожидала. Заменили на `sexpdata`
-(общий S-expr токенайзер) + свой семантический слой поверх — он не пытается
-понимать формат целиком, только достаёт нужные поля, а всё незнакомое молча
-пропускает. Смена библиотеки не задела ничего, кроме `net_parser.py` —
-ровно ради этого и делали интерфейс в `core/interfaces.py`.
+Ran on mishin-coil-gen-v1 (KiCad 10.0.4, hierarchical, 322 components,
+221 nets, 17 netclasses) — parsed and classified fully, 0 nets left in Default.
+By the way, the `.net` parser was originally based on `kinparse`
+(a specialized pyparsing grammar) — it failed on the same project: the `design`
+section in KiCad 10 contains a `(sheet ...)`/`(title_block ...)` entry per
+hierarchy sheet, and the grammar didn't expect it. Replaced with `sexpdata`
+(a generic S-expr tokenizer) plus a custom semantic layer on top — it doesn't
+try to understand the format entirely, just extracts the needed fields and
+silently skips everything unfamiliar. Switching libraries didn't touch anything
+except `net_parser.py` — exactly why the interface in `core/interfaces.py` exists.
 
-## Известные ограничения
+## Known limitations
 
-- Матчинг netclass-паттернов идёт по **полному** иерархическому имени цепи
-  (как в старом `netclass_audit.py`). Если паттерн написан с `^...$` под
-  плоский проект (например `^\+5V$`), он не совпадёт с `/Power/SubSheetA/+5V`
-  на вложенном листе — учитывай путь в паттерне или убирай якоря. На реальном
-  проекте это уже учтено: паттерны там вида `^(?:.*/)?+5V.*`.
-- `raw_txt_copy` сохраняет время изменения/доступа (`shutil.copystat`), но не
-  время создания файла в NTFS (Проводник Windows показывает его отдельно) —
-  для этого понадобится `pywin32`, пока не подключали.
-- IPC API KiCad (`kipy`) в 9-й и 10-й версии не поддерживает схемный редактор
-  — источник данных для нетлиста/BOM/netclass остаётся файловым (`.net` +
-  `.kicad_pro`) на неопределённый срок.
+- Netclass pattern matching runs against the **full** hierarchical net name
+  (as in the old `netclass_audit.py`). If a pattern is written with `^...$`
+  for a flat project (e.g. `^\+5V$`), it won't match `/Power/SubSheetA/+5V`
+  on a nested sheet — account for the path in the pattern or drop the anchors.
+  On the real project this is already handled: patterns there look like
+  `^(?:.*/)?+5V.*`.
+- `raw_txt_copy` preserves modification/access time (`shutil.copystat`), but not
+  the file creation time on NTFS (Windows Explorer shows it separately) —
+  that would require `pywin32`, which we haven't added so far.
+- The KiCad IPC API (`kipy`) in versions 9 and 10 doesn't support the schematic
+  editor — the data source for netlist/BOM/netclass remains file-based
+  (`.net` + `.kicad_pro`) for the foreseeable future.
 
-## Создание установщика
+## Building an installer
 
 ```bash
 pyinstaller --onefile --name KiCadNetExporter --paths . --distpath "D:\Utils" run.py
