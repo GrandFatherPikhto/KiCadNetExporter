@@ -152,5 +152,5 @@ unconnected и power цепи, компонент без footprint, «плохо
 ## Создание установщика
 
 ```bash
-pyinstaller --onefile --name KiCadNetExporter --paths . --distpath "D:\Utils" run.py
+pyinstaller --onefile --name KiCadNetExporter --noconsole --paths . --distpath "D:\Utils" run.py
 ```
