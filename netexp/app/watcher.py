@@ -111,6 +111,8 @@ class _TrackedFileHandler(FileSystemEventHandler):
         self._notified_stale[project.name] = False
         try:
             run_project(project, self.config)
+        except FileNotFoundError as e:
+            logger.error("Пайплайн пропущен для проекта %s: %s", project.name, e)
         except Exception:
             logger.exception("Пайплайн упал для проекта %s", project.name)
 

@@ -27,7 +27,10 @@ def main() -> None:
 
     if args.once:
         for project in config.projects:
-            run_project(project, config)
+            try:
+                run_project(project, config)
+            except FileNotFoundError as e:
+                logger.error("Проект %s пропущен: %s", project.name, e)
         return
 
     # первичный прогон при старте — чтобы отчёты были свежими сразу,
@@ -35,6 +38,8 @@ def main() -> None:
     for project in config.projects:
         try:
             run_project(project, config)
+        except FileNotFoundError as e:
+            logger.error("Первичный прогон пропущен для проекта %s: %s", project.name, e)
         except Exception:
             logger.exception("Первичный прогон упал для проекта %s", project.name)
 

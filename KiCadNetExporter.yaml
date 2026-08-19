@@ -2,18 +2,18 @@
 # Пути возьми свои, если проект переехал.
 
 projects:
-  - name: mishin-coil-gen-v1
-    kicad_project: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/mishin-coil-gen-v1.kicad_pro"
-    netlist: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/mishin-coil-gen-v1.net"
-    output_dir: "D:/Projects/KiCad/Mishin-Coil/mishin-coil-gen-v1/out"
-  - name: trig_ne555
-    kicad_project: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/trig_ne555.kicad_pro"
-    netlist: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/trig_ne555.net"
-    output_dir: "D:/Projects/Python/KiCadPcbCloner/tests/trig_ne555/out"
-  - name: 10CL006_power
-    kicad_project: "D:/Projects/Python/KiCadSpoke/test_boards/Power/Power.kicad_pro"
-    netlist: "D:/Projects/Python/KiCadSpoke/test_boards/Power/Power.net"
-    output_dir: "D:/Projects/Python/KiCadSpoke/test_boards/Power/out"
+  - name: 3CH-AWG-TIA-v101
+    kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/3CH-AWG-TIA.kicad_pro"
+    netlist: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/3CH-AWG-TIA.net"
+    output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/out"
+  - name: 3CH-AWG-TIA-v102
+    kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/3CH-AWG-TIA-v102.kicad_pro"
+    netlist: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/3CH-AWG-TIA-v102.net"
+    output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/out"
+  - name: ADA4870-Exciter
+    kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/ADA4807-Exciter.kicad_pro"
+    netlist: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/ADA4807-Exciter.net"
+    output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/out"
 
 output:
   formats: [txt, json]

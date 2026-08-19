@@ -4,6 +4,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Кэш pytest
+.pytest_cache/
+
 # Виртуальные окружения (Virtual Environments)
 .venv/
 venv/

@@ -36,8 +36,22 @@ _GENERATORS = [
 ]
 
 
+def _check_file(path: str, description: str, project_name: str) -> None:
+    """Явная проверка перед парсингом: типичная причина падения — устаревший
+    или опечатанный путь в конфиге, а не битый файл. Без неё FileNotFoundError
+    всплывает из недр pathlib с длинным малополезным traceback."""
+    if not Path(path).is_file():
+        raise FileNotFoundError(
+            f"{description} не найден для проекта «{project_name}»: {path} "
+            f"— проверьте путь в конфиге (секция 'projects')"
+        )
+
+
 def run_project(project: ProjectConfig, config: AppConfig) -> list[Path]:
     logger.info("=== Прогон проекта %s ===", project.name)
+
+    _check_file(project.netlist, "Файл нетлиста (.net)", project.name)
+    _check_file(project.kicad_project, "Файл проекта (.kicad_pro)", project.name)
 
     net_parser = KiCadNetParser()
     pro_parser = KiCadProParser()

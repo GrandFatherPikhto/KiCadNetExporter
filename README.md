@@ -101,6 +101,18 @@ pythonw -m netexp.app.main config.yaml
 - `<name>.txt` — точная копия `.net` (только если `raw_txt_copy: true`).
 - `.snapshot_<name>.json` — служебный файл для diff, не трогать руками.
 
+## Тесты
+
+Юнит-тесты на `pytest` лежат в `tests/` и покрывают модели, парсеры
+(`.net`/`.kicad_pro`), классификацию, все генераторы отчётов и app-слой
+(конфиг, pipeline, watcher, логирование). Синтетические данные для тестов
+генерируются в `tests/data.py`.
+
+```bash
+pip install pytest
+python -m pytest
+```
+
 ## Пример / тест на своих данных
 
 В `test_sample/` — синтетический иерархический проект (демонстрирует листы,
