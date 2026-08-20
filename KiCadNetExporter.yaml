@@ -2,19 +2,23 @@
 # Пути возьми свои, если проект переехал.
 
 projects:
-  - name: 3CH-AWG-TIA-v101
-    kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/3CH-AWG-TIA.kicad_pro"
-    netlist: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/3CH-AWG-TIA.net"
-    output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/out"
-  - name: 3CH-AWG-TIA-v102
-    kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/3CH-AWG-TIA-v102.kicad_pro"
-    netlist: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/3CH-AWG-TIA-v102.net"
-    output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/out"
-  - name: ADA4870-Exciter
-    kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/ADA4807-Exciter.kicad_pro"
-    netlist: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/ADA4807-Exciter.net"
-    output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/out"
+- name: 3CH-AWG-TIA-v101
+  kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/3CH-AWG-TIA.kicad_pro"
+  netlist: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/3CH-AWG-TIA.net"
+  output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/out"
+- name: 3CH-AWG-TIA-v102
+  kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/3CH-AWG-TIA-v102.kicad_pro"
+  netlist: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/3CH-AWG-TIA-v102.net"
+  output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/out"
+- name: ADA4870-Exciter
+  kicad_project: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/ADA4807-Exciter.kicad_pro"
+  netlist: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/ADA4807-Exciter.net"
+  output_dir: "D:/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/out"
 
+- name: HiPIMS Channel
+  kicad_project: D:/Projects/KiCad/HiPIMS/Channel-v099/Channel-v099.kicad_pro
+  netlist: D:/Projects/KiCad/HiPIMS/Channel-v099/Channel-v099.net
+  output_dir: D:/Projects/KiCad/HiPIMS/Channel-v099/out
 output:
   formats: [txt, json]
   raw_txt_copy: false
@@ -22,14 +26,14 @@ output:
 
 classification:
   power_patterns:
-    - "(?i)^GND$"
-    - "(?i)^\\+?\\d+V\\d*"
-    - "(?i)VCC|VDD|VEE|VSS"
+  - "(?i)^GND$"
+  - "(?i)^\\+?\\d+V\\d*"
+  - "(?i)VCC|VDD|VEE|VSS"
   suspicious_patterns:
-    - "(?i)net-\\("
-    - "(?i)[+-]\\d+v"
-    - "(?i)clk|clock"
-    - "(?i)pwr|vcc|vdd|vee"
+  - "(?i)net-\\("
+  - "(?i)[+-]\\d+v"
+  - "(?i)clk|clock"
+  - "(?i)pwr|vcc|vdd|vee"
 
 watch:
   enabled: true

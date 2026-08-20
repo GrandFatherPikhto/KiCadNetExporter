@@ -232,3 +232,81 @@ class TestRegisterProject:
         # файлы не существуют — в watch_map ничего не добавляется
         assert str(new_dir.resolve()) not in handler.watched_dirs
         assert all(p.name != "missing.kicad_pro" for p in handler.watch_map.values())
+
+
+class TestFreeze:
+    def test_frozen_project_skips_pipeline(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project", lambda *a, **k: calls.append(1))
+        handler = _handler(config)
+        handler.set_frozen("demo", True)
+        assert handler.is_frozen("demo") is True
+        handler.on_modified(FileModifiedEvent(str(tmp_path / "demo.net")))
+        assert calls == []
+
+    def test_unfreeze_restores_pipeline(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project",
+                            lambda proj, cfg: calls.append(proj.name))
+        handler = _handler(config)
+        handler.set_frozen("demo", True)
+        handler.set_frozen("demo", False)
+        assert handler.is_frozen("demo") is False
+        handler.on_modified(FileModifiedEvent(str(tmp_path / "demo.net")))
+        assert calls == ["demo"]
+
+    def test_freeze_one_project_does_not_affect_others(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        net2 = tmp_path / "other.net"
+        pro2 = tmp_path / "other.kicad_pro"
+        net2.write_text(T.SAMPLE_NET, encoding="utf-8")
+        pro2.write_text(T.SAMPLE_KICAD_PRO, encoding="utf-8")
+        config.projects.append(ProjectConfig(
+            name="other", kicad_project=str(pro2), netlist=str(net2),
+            output_dir=str(tmp_path / "out2"),
+        ))
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project",
+                            lambda proj, cfg: calls.append(proj.name))
+        handler = _handler(config)
+        handler.set_frozen("demo", True)
+        handler.on_modified(FileModifiedEvent(str(tmp_path / "demo.net")))
+        handler.on_modified(FileModifiedEvent(str(tmp_path / "other.net")))
+        assert calls == ["other"]
+
+
+class TestUnregisterProject:
+    def test_unregister_removes_all_project_paths(self, tmp_path):
+        config, project = _make_config(tmp_path)
+        sch = tmp_path / "demo.kicad_sch"
+        sch.write_text("(kicad_sch)", encoding="utf-8")
+        handler = _handler(config)
+        assert len(handler.watch_map) == 2
+        assert len(handler.sch_watch_map) == 1
+        handler.unregister_project("demo")
+        assert handler.watch_map == {}
+        assert handler.sch_watch_map == {}
+
+    def test_unregister_keeps_other_projects(self, tmp_path):
+        config, project = _make_config(tmp_path)
+        net2 = tmp_path / "other.net"
+        pro2 = tmp_path / "other.kicad_pro"
+        net2.write_text(T.SAMPLE_NET, encoding="utf-8")
+        pro2.write_text(T.SAMPLE_KICAD_PRO, encoding="utf-8")
+        config.projects.append(ProjectConfig(
+            name="other", kicad_project=str(pro2), netlist=str(net2),
+            output_dir=str(tmp_path / "out2"),
+        ))
+        handler = _handler(config)
+        handler.unregister_project("demo")
+        assert {v.name for v in handler.watch_map.values()} == {"other"}
+
+    def test_unregister_does_not_unschedule_directories(self, tmp_path):
+        config, project = _make_config(tmp_path)
+        handler = _handler(config)
+        handler.watched_dirs.add(str(tmp_path.resolve()))
+        handler.unregister_project("demo")
+        # директории в observer не отписываем (см. решение по упрощению)
+        assert str(tmp_path.resolve()) in handler.watched_dirs

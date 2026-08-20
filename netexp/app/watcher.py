@@ -46,6 +46,7 @@ class _TrackedFileHandler(FileSystemEventHandler):
         self._notified_stale: dict[str, bool] = {}       # project.name -> уже уведомили про этот эпизод
         self.observer: Optional[Observer] = None         # выставляется в run_watch_loop
         self.watched_dirs: set[str] = set()              # директории, уже запланированные в observer
+        self.frozen: set[str] = set()                    # имена замороженных проектов (только в памяти)
 
         for project in config.projects:
             for raw_path in (project.netlist, project.kicad_project):
@@ -91,6 +92,30 @@ class _TrackedFileHandler(FileSystemEventHandler):
             self.watched_dirs.add(d)
             logger.info("Слежу за директорией (новый проект): %s", d)
 
+    def unregister_project(self, name: str) -> None:
+        """Убирает проект из watch-карт по имени (записи, чьё значение
+        .name == name). Директории из observer НЕ отписываем: unschedule требует
+        хранить ObservedWatch (которого сейчас нет), а в одной директории могут
+        лежать несколько проектов — отписка сломала бы соседей. Оставшийся
+        «пустой» watch безвреден: события просто не находят совпадения в
+        watch_map и игнорируются."""
+        for mapping in (self.watch_map, self.sch_watch_map):
+            for key in [k for k, v in mapping.items() if v.name == name]:
+                del mapping[key]
+
+    def set_frozen(self, name: str, frozen: bool) -> None:
+        """Заморозить/разморозить конкретный проект (только в памяти, не
+        персистится — как общая «Пауза» из трея)."""
+        if frozen:
+            self.frozen.add(name)
+            logger.info("Проект %s заморожен (из окна настроек)", name)
+        else:
+            self.frozen.discard(name)
+            logger.info("Проект %s разморожен (из окна настроек)", name)
+
+    def is_frozen(self, name: str) -> bool:
+        return name in self.frozen
+
     def _check_stale(self, project: ProjectConfig) -> None:
         """Схема новее нетлиста дольше grace-периода — уведомить один раз за эпизод."""
         net_path = Path(project.netlist)
@@ -131,8 +156,9 @@ class _TrackedFileHandler(FileSystemEventHandler):
         project = self.watch_map.get(path)
         if project is None:
             return
-        if self.paused.is_set():
-            logger.debug("На паузе — пропускаю событие для %s", project.name)
+        if self.paused.is_set() or project.name in self.frozen:
+            reason = "общая пауза" if self.paused.is_set() else "проект заморожен"
+            logger.debug("Пропускаю событие для %s (%s)", project.name, reason)
             return
 
         now = time.time()

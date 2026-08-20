@@ -1,4 +1,5 @@
-"""Тесты загрузки YAML-конфига: load_config, append_project, validate_new_project."""
+"""Тесты загрузки YAML-конфига: load_config, append/remove_project,
+validate_new_project."""
 from __future__ import annotations
 
 import pytest
@@ -7,6 +8,7 @@ from netexp.app.config import (
     ProjectConfig,
     append_project,
     load_config,
+    remove_project,
     validate_new_project,
 )
 
@@ -215,3 +217,53 @@ class TestValidateNewProject:
         net, pro = self._write_pair(tmp_path)
         errors = validate_new_project("", str(pro), str(net), self._existing("demo"))
         assert any("имя" in e for e in errors)
+
+
+class TestRemoveProject:
+    CONFIG_TWO = """\
+# Шапка.
+projects:
+  - name: demo
+    kicad_project: "./demo.kicad_pro"
+    netlist: "./demo.net"
+    output_dir: "./out"
+  - name: other
+    kicad_project: "./other.kicad_pro"
+    netlist: "./other.net"
+    output_dir: "./other_out"
+
+output:
+  formats: [txt, json]
+"""
+
+    def test_removes_only_requested_project(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG_TWO, encoding="utf-8")
+        remove_project(p, "demo")
+
+        text = p.read_text(encoding="utf-8")
+        assert "- name: demo" not in text
+        assert "- name: other" in text
+        assert "# Шапка." in text  # комментарий выжил
+
+        cfg = load_config(p)
+        assert [pr.name for pr in cfg.projects] == ["other"]
+
+    def test_backup_created(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG_TWO, encoding="utf-8")
+        original = p.read_text(encoding="utf-8")
+        remove_project(p, "demo")
+
+        bak = tmp_path / "config.yaml.bak"
+        assert bak.exists()
+        assert bak.read_text(encoding="utf-8") == original
+
+    def test_missing_name_raises_and_config_untouched(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG_TWO, encoding="utf-8")
+        original = p.read_text(encoding="utf-8")
+        with pytest.raises(ValueError, match="nope"):
+            remove_project(p, "nope")
+        assert p.read_text(encoding="utf-8") == original
+        assert not (tmp_path / "config.yaml.bak").exists()

@@ -1,7 +1,7 @@
 """
 Иконка в трее (pystray) — единственный "UI" процесса, раз он живёт как
 pythonw без консоли. Меню: открыть папку(и) вывода, открыть лог, пауза
-слежения, добавить проект (tkinter-диалог в отдельном потоке), выход.
+слежения, настройки (окно управления проектами в отдельном потоке), выход.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from .config import (
     AppConfig,
     ProjectConfig,
     append_project,
+    remove_project,
     validate_new_project,
 )
 from .pipeline import run_project
@@ -47,73 +48,181 @@ def _open_path(path: Path) -> None:
         logger.exception("Не удалось открыть %s", path)
 
 
-def _show_add_project_dialog(config: AppConfig, config_path: Path | None,
-                             watch_handle: WatchHandle | None) -> None:
-    """Строит и показывает tkinter-диалог «Добавить проект» в отдельном потоке
-    (свой tk.Tk() и mainloop внутри него). Главный поток занят
-    pystray.Icon.run(), а Tk не любит переиспользование между потоками —
-    поэтому весь UI создаётся и живёт здесь, в этом потоке."""
+def _build_project_fields(parent) -> tuple[dict[str, tk.StringVar], dict[str, tk.Entry]]:
+    """Строит блок полей проекта (имя, .kicad_pro, .net, папка вывода) с
+    кнопками «Обзор...» внутри parent. Возвращает (vars, entries) — словари
+    StringVar и Entry по именам полей.
+
+    Единый источник вёрстки: используется и диалогом добавления, и окном
+    настроек, чтобы не дублировать код.
+    """
     import tkinter as tk
     from tkinter import filedialog
 
-    root = tk.Tk()
-    root.title("Добавить проект")
-    root.resizable(False, False)
-
     def _pick_file(entry: tk.Entry, filetypes: list) -> None:
-        path = filedialog.askopenfilename(parent=root, filetypes=filetypes)
+        path = filedialog.askopenfilename(parent=parent.winfo_toplevel(), filetypes=filetypes)
         if path:
             entry.delete(0, tk.END)
             entry.insert(0, path)
 
     def _pick_dir(entry: tk.Entry) -> None:
-        path = filedialog.askdirectory(parent=root)
+        path = filedialog.askdirectory(parent=parent.winfo_toplevel())
         if path:
             entry.delete(0, tk.END)
             entry.insert(0, path)
 
-    frame = tk.Frame(root, padx=12, pady=12)
-    frame.grid(sticky="nsew")
+    vars_: dict[str, tk.StringVar] = {
+        "name": tk.StringVar(),
+        "kicad_project": tk.StringVar(),
+        "netlist": tk.StringVar(),
+        "output_dir": tk.StringVar(),
+    }
+    entries: dict[str, tk.Entry] = {}
 
-    name_var = tk.StringVar()
-    pro_var = tk.StringVar()
-    net_var = tk.StringVar()
-    out_var = tk.StringVar()
-    error_var = tk.StringVar()
+    tk.Label(parent, text="Имя проекта:").grid(row=0, column=0, sticky="w")
+    entries["name"] = tk.Entry(parent, textvariable=vars_["name"], width=48)
+    entries["name"].grid(row=0, column=1, columnspan=2, sticky="we", pady=2)
 
-    tk.Label(frame, text="Имя проекта:").grid(row=0, column=0, sticky="w")
-    tk.Entry(frame, textvariable=name_var, width=60).grid(
-        row=0, column=1, columnspan=2, sticky="we", pady=2)
-
-    tk.Label(frame, text="Проект KiCad (.kicad_pro):").grid(row=1, column=0, sticky="w")
-    pro_entry = tk.Entry(frame, textvariable=pro_var, width=60)
-    pro_entry.grid(row=1, column=1, sticky="we", pady=2)
-    tk.Button(frame, text="Обзор...", command=lambda: _pick_file(
-        pro_entry, [("KiCad project", "*.kicad_pro"), ("Все файлы", "*.*")]
+    tk.Label(parent, text="Проект KiCad (.kicad_pro):").grid(row=1, column=0, sticky="w")
+    entries["kicad_project"] = tk.Entry(parent, textvariable=vars_["kicad_project"], width=48)
+    entries["kicad_project"].grid(row=1, column=1, sticky="we", pady=2)
+    tk.Button(parent, text="Обзор...", command=lambda: _pick_file(
+        entries["kicad_project"], [("KiCad project", "*.kicad_pro"), ("Все файлы", "*.*")]
     )).grid(row=1, column=2, padx=(4, 0))
 
-    tk.Label(frame, text="Нетлист (.net):").grid(row=2, column=0, sticky="w")
-    net_entry = tk.Entry(frame, textvariable=net_var, width=60)
-    net_entry.grid(row=2, column=1, sticky="we", pady=2)
-    tk.Button(frame, text="Обзор...", command=lambda: _pick_file(
-        net_entry, [("KiCad netlist", "*.net"), ("Все файлы", "*.*")]
+    tk.Label(parent, text="Нетлист (.net):").grid(row=2, column=0, sticky="w")
+    entries["netlist"] = tk.Entry(parent, textvariable=vars_["netlist"], width=48)
+    entries["netlist"].grid(row=2, column=1, sticky="we", pady=2)
+    tk.Button(parent, text="Обзор...", command=lambda: _pick_file(
+        entries["netlist"], [("KiCad netlist", "*.net"), ("Все файлы", "*.*")]
     )).grid(row=2, column=2, padx=(4, 0))
 
-    tk.Label(frame, text="Папка вывода (необязательно):").grid(row=3, column=0, sticky="w")
-    out_entry = tk.Entry(frame, textvariable=out_var, width=60)
-    out_entry.grid(row=3, column=1, sticky="we", pady=2)
-    tk.Button(frame, text="Обзор...", command=lambda: _pick_dir(out_entry)).grid(
+    tk.Label(parent, text="Папка вывода (необязательно):").grid(row=3, column=0, sticky="w")
+    entries["output_dir"] = tk.Entry(parent, textvariable=vars_["output_dir"], width=48)
+    entries["output_dir"].grid(row=3, column=1, sticky="we", pady=2)
+    tk.Button(parent, text="Обзор...", command=lambda: _pick_dir(entries["output_dir"])).grid(
         row=3, column=2, padx=(4, 0))
 
-    tk.Label(frame, textvariable=error_var, fg="#c0392b", justify="left",
-             anchor="w", wraplength=520).grid(
+    return vars_, entries
+
+
+def _show_settings_window(config: AppConfig, config_path: Path | None,
+                          watch_handle: WatchHandle | None) -> None:
+    """Окно «Настройки» — управление проектами. В отдельном потоке со своим
+    tk.Tk() (главный поток занят pystray.Icon.run(), а Tk не любит
+    переиспользование между потоками).
+
+    Слева — список проектов со статусом заморозки, справа — поля проекта
+    (нового — редактируемые, выбранного — только чтение), снизу — кнопки
+    «Добавить», «Удалить», «Заморозить»/«Разморозить».
+    """
+    import tkinter as tk
+    from tkinter import messagebox, ttk
+
+    root = tk.Tk()
+    root.title("Настройки — проекты KiCad Net Exporter")
+    root.geometry("880x410")
+    root.resizable(False, False)
+
+    main = tk.Frame(root, padx=12, pady=12)
+    main.grid(sticky="nsew")
+
+    def handler():
+        return watch_handle.handler if watch_handle is not None else None
+
+    # ---------- слева: список проектов ----------
+    left = ttk.Frame(main)
+    left.grid(row=0, column=0, sticky="ns", padx=(0, 16))
+    ttk.Label(left, text="Проекты:").grid(row=0, column=0, sticky="w", pady=(0, 4))
+    tree = ttk.Treeview(left, columns=("status",), show="tree headings",
+                        selectmode="browse", height=14)
+    tree.heading("#0", text="Проект")
+    tree.heading("status", text="Статус")
+    tree.column("#0", width=250, anchor="w")
+    tree.column("status", width=110, anchor="center")
+    tree.grid(row=1, column=0, sticky="nsew")
+    scroll = ttk.Scrollbar(left, orient="vertical", command=tree.yview)
+    scroll.grid(row=1, column=1, sticky="ns")
+    tree.configure(yscrollcommand=scroll.set)
+
+    # ---------- справа: поля проекта ----------
+    right = tk.Frame(main)
+    right.grid(row=0, column=1, sticky="nsew")
+    field_vars, field_entries = _build_project_fields(right)
+
+    error_var = tk.StringVar()
+    tk.Label(right, textvariable=error_var, fg="#c0392b", justify="left",
+             anchor="w", wraplength=400).grid(
         row=4, column=0, columnspan=3, sticky="we", pady=(4, 0))
 
-    def on_submit() -> None:
-        name = name_var.get().strip()
-        kicad_project = pro_var.get().strip()
-        netlist = net_var.get().strip()
-        output_dir = out_var.get().strip()
+    # ---------- кнопки ----------
+    btn_frame = tk.Frame(right)
+    btn_frame.grid(row=5, column=0, columnspan=3, sticky="e", pady=(12, 0))
+    add_btn = tk.Button(btn_frame, text="Добавить", width=12)
+    del_btn = tk.Button(btn_frame, text="Удалить", width=12)
+    freeze_btn = tk.Button(btn_frame, text="Заморозить", width=12)
+    add_btn.pack(side="left", padx=(0, 8))
+    del_btn.pack(side="left", padx=(0, 8))
+    freeze_btn.pack(side="left")
+
+    def _selected_name() -> str | None:
+        sel = tree.selection()
+        if not sel:
+            return None
+        return tree.item(sel[0], "text")
+
+    def _is_frozen(name: str) -> bool:
+        h = handler()
+        return bool(h is not None and h.is_frozen(name))
+
+    def _find_project(name: str) -> ProjectConfig | None:
+        return next((p for p in config.projects if p.name == name), None)
+
+    def _refresh_list() -> None:
+        tree.delete(*tree.get_children())
+        for project in config.projects:
+            status = "⏸ заморожен" if _is_frozen(project.name) else "▶ активен"
+            tree.insert("", "end", text=project.name, values=(status,))
+
+    def _reset_to_new_mode() -> None:
+        tree.selection_remove(tree.selection())
+        for var in field_vars.values():
+            var.set("")
+        for entry in field_entries.values():
+            entry.config(state="normal")
+        error_var.set("")
+        add_btn.config(state="normal")
+        del_btn.config(state="disabled")
+        freeze_btn.config(state="disabled", text="Заморозить")
+
+    def _enter_selected_mode(project: ProjectConfig) -> None:
+        field_vars["name"].set(project.name)
+        field_vars["kicad_project"].set(project.kicad_project)
+        field_vars["netlist"].set(project.netlist)
+        field_vars["output_dir"].set(project.output_dir)
+        for entry in field_entries.values():
+            entry.config(state="readonly")
+        error_var.set("")
+        add_btn.config(state="disabled")
+        del_btn.config(state="normal")
+        frozen = _is_frozen(project.name)
+        freeze_btn.config(state="normal", text="Разморозить" if frozen else "Заморозить")
+
+    def on_select(_event=None) -> None:
+        name = _selected_name()
+        project = _find_project(name) if name else None
+        if project is None:
+            _reset_to_new_mode()
+        else:
+            _enter_selected_mode(project)
+
+    tree.bind("<<TreeviewSelect>>", on_select)
+
+    def on_add() -> None:
+        name = field_vars["name"].get().strip()
+        kicad_project = field_vars["kicad_project"].get().strip()
+        netlist = field_vars["netlist"].get().strip()
+        output_dir = field_vars["output_dir"].get().strip()
 
         # Дефолты — те же, что в config.py::load_config.
         if not name and netlist:
@@ -124,7 +233,7 @@ def _show_add_project_dialog(config: AppConfig, config_path: Path | None,
         errors = validate_new_project(name, kicad_project, netlist, config.projects)
         if errors:
             error_var.set("\n".join(errors))
-            return  # не закрываем диалог — даём поправить поля
+            return  # окно остаётся открытым — даём поправить поля
 
         project = ProjectConfig(name=name, kicad_project=kicad_project,
                                 netlist=netlist, output_dir=output_dir)
@@ -132,29 +241,80 @@ def _show_add_project_dialog(config: AppConfig, config_path: Path | None,
             if config_path is not None:
                 append_project(config_path, project)
             config.projects.append(project)
-            if watch_handle is not None and watch_handle.handler is not None:
-                watch_handle.handler.register_project(project)
+            if handler() is not None:
+                handler().register_project(project)
         except Exception:
             logger.exception("Не удалось сохранить проект %s — файл конфига не тронут", project.name)
             error_var.set("Не удалось сохранить проект в конфиг — см. лог.")
             return
 
         logger.info("Проект %s добавлен в конфиг и начинает отслеживаться", project.name)
-        root.destroy()
+        _refresh_list()
+        _reset_to_new_mode()
 
-        # Первичный прогон в этом же фоновом потоке — результат появляется сразу.
+        # Первичный прогон в отдельном фоне — окно не замораживается.
+        def _run_new() -> None:
+            try:
+                run_project(project, config)
+            except FileNotFoundError as e:
+                logger.error("Первичный прогон пропущен для проекта %s: %s", project.name, e)
+            except Exception:
+                logger.exception("Первичный прогон упал для проекта %s", project.name)
+
+        threading.Thread(target=_run_new, daemon=True).start()
+
+    def on_delete() -> None:
+        name = _selected_name()
+        if name is None:
+            return
+        project = _find_project(name)
+        out_dir = project.output_dir if project else ""
+        if not messagebox.askyesno(
+            "Удалить проект",
+            f"Удалить проект «{name}» из конфига и из слежения?\n\n"
+            f"Файлы в папке вывода ({out_dir}) НЕ удаляются — "
+            f"удаляется только запись в конфиге.",
+            parent=root,
+        ):
+            return
         try:
-            run_project(project, config)
-        except FileNotFoundError as e:
-            logger.error("Первичный прогон пропущен для проекта %s: %s", project.name, e)
+            if config_path is not None:
+                remove_project(config_path, name)
+            config.projects[:] = [p for p in config.projects if p.name != name]
+            if handler() is not None:
+                handler().unregister_project(name)
+        except ValueError as e:
+            logger.error("%s", e)
+            error_var.set(str(e))
+            return
         except Exception:
-            logger.exception("Первичный прогон упал для проекта %s", project.name)
+            logger.exception("Не удалось удалить проект %s — файл конфига не тронут", name)
+            error_var.set("Не удалось удалить проект из конфига — см. лог.")
+            return
 
-    btns = tk.Frame(frame)
-    btns.grid(row=5, column=1, columnspan=2, sticky="e", pady=(12, 0))
-    tk.Button(btns, text="Отмена", command=root.destroy, width=10).pack(side="left", padx=(0, 8))
-    tk.Button(btns, text="Добавить", command=on_submit, width=10).pack(side="left")
+        logger.info("Проект %s удалён из конфига и из слежения", name)
+        _refresh_list()
+        _reset_to_new_mode()
 
+    def on_freeze() -> None:
+        name = _selected_name()
+        h = handler()
+        if name is None or h is None:
+            return
+        frozen = h.is_frozen(name)
+        h.set_frozen(name, not frozen)
+        sel = tree.selection()
+        if sel:
+            status = "⏸ заморожен" if not frozen else "▶ активен"
+            tree.item(sel[0], values=(status,))
+        freeze_btn.config(text="Разморозить" if not frozen else "Заморозить")
+
+    add_btn.config(command=on_add)
+    del_btn.config(command=on_delete)
+    freeze_btn.config(command=on_freeze)
+
+    _refresh_list()
+    _reset_to_new_mode()
     root.mainloop()
 
 
@@ -169,9 +329,9 @@ def build_icon(config: AppConfig, stop_flag: threading.Event, paused: threading.
     ОС-нотификация, вызов из чужого потока штатно поддерживается на всех
     трёх бэкендах (win32/appindicator/darwin).
 
-    config_path и watch_handle нужны пункту «Добавить проект...»: первый — чтобы
-    дописать проект в YAML (с сохранением комментариев), второй — чтобы завести
-    его в живом наблюдателе без перезапуска приложения.
+    config_path и watch_handle нужны пункту «Настройки...»: первый — чтобы
+    дописывать/удалять проекты в YAML (с сохранением комментариев), второй —
+    чтобы заводить их в живом наблюдателе без перезапуска приложения.
     """
     def on_open_outputs(icon, item):
         for project in config.projects:
@@ -189,11 +349,11 @@ def build_icon(config: AppConfig, stop_flag: threading.Event, paused: threading.
             paused.set()
             logger.info("Слежение поставлено на паузу (из трея)")
 
-    def on_add_project(icon, item):
+    def on_settings(icon, item):
         # pystray.Icon.run() занимает главный поток, Tk требует свой mainloop —
-        # поэтому диалог открываем в отдельном потоке со своим tk.Tk().
+        # поэтому окно открываем в отдельном потоке со своим tk.Tk().
         threading.Thread(
-            target=_show_add_project_dialog,
+            target=_show_settings_window,
             args=(config, config_path, watch_handle),
             daemon=True,
         ).start()
@@ -208,7 +368,7 @@ def build_icon(config: AppConfig, stop_flag: threading.Event, paused: threading.
         pystray.MenuItem("Открыть лог", on_open_log, enabled=lambda item: bool(log_path)),
         pystray.MenuItem("Пауза", on_toggle_pause, checked=lambda item: paused.is_set()),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Добавить проект...", on_add_project),
+        pystray.MenuItem("Настройки...", on_settings),
         pystray.MenuItem("Выход", on_exit),
     )
     return pystray.Icon("kicad-net-exporter", _make_icon_image(), "KiCad Net Exporter", menu)
