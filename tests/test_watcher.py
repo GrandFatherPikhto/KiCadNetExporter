@@ -310,3 +310,73 @@ class TestUnregisterProject:
         handler.unregister_project("demo")
         # директории в observer не отписываем (см. решение по упрощению)
         assert str(tmp_path.resolve()) in handler.watched_dirs
+
+
+class TestUpdateProject:
+    @staticmethod
+    def _renamed(tmp_path, name="b", stem="b"):
+        net = tmp_path / f"{stem}.net"
+        pro = tmp_path / f"{stem}.kicad_pro"
+        sch = tmp_path / f"{stem}.kicad_sch"
+        net.write_text(T.SAMPLE_NET, encoding="utf-8")
+        pro.write_text(T.SAMPLE_KICAD_PRO, encoding="utf-8")
+        sch.write_text("(kicad_sch)", encoding="utf-8")
+        return ProjectConfig(name=name, kicad_project=str(pro), netlist=str(net),
+                             output_dir=str(tmp_path / "out2"))
+
+    def test_paths_move_to_new_name(self, tmp_path):
+        config, project = _make_config(tmp_path)
+        handler = _handler(config)
+        renamed = self._renamed(tmp_path)
+
+        handler.update_project("demo", renamed)
+
+        # старые пути убраны
+        assert str((tmp_path / "demo.net").resolve()) not in handler.watch_map
+        assert str((tmp_path / "demo.kicad_pro").resolve()) not in handler.watch_map
+        # новые пути на месте под новым именем (и схема тоже)
+        assert {v.name for v in handler.watch_map.values()} == {"b"}
+        assert len(handler.watch_map) == 2
+        assert str((tmp_path / "b.kicad_sch").resolve()) in handler.sch_watch_map
+
+    def test_old_paths_no_longer_trigger_pipeline(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project",
+                            lambda proj, cfg: calls.append(proj.name))
+        handler = _handler(config)
+        renamed = self._renamed(tmp_path)
+        handler.update_project("demo", renamed)
+
+        handler.on_modified(FileModifiedEvent(str(tmp_path / "demo.net")))
+        assert calls == []
+
+    def test_frozen_status_carries_to_new_name(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project",
+                            lambda proj, cfg: calls.append(proj.name))
+        handler = _handler(config)
+        handler.set_frozen("demo", True)
+        renamed = self._renamed(tmp_path)
+
+        handler.update_project("demo", renamed)
+
+        assert handler.is_frozen("demo") is False  # старое имя не висит в frozen
+        assert handler.is_frozen("b") is True      # статус перенесён на новое имя
+        handler.on_modified(FileModifiedEvent(str(tmp_path / "b.net")))
+        assert calls == []                          # переименованный всё ещё заморожен
+
+    def test_unfrozen_stays_unfrozen(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project",
+                            lambda proj, cfg: calls.append(proj.name))
+        handler = _handler(config)
+        renamed = self._renamed(tmp_path)
+
+        handler.update_project("demo", renamed)
+
+        assert handler.is_frozen("b") is False
+        handler.on_modified(FileModifiedEvent(str(tmp_path / "b.net")))
+        assert calls == ["b"]

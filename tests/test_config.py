@@ -1,4 +1,4 @@
-"""Тесты загрузки YAML-конфига: load_config, append/remove_project,
+"""Тесты загрузки YAML-конфига: load_config, append/remove/update_project,
 validate_new_project."""
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from netexp.app.config import (
     append_project,
     load_config,
     remove_project,
+    update_project,
     validate_new_project,
 )
 
@@ -218,6 +219,21 @@ class TestValidateNewProject:
         errors = validate_new_project("", str(pro), str(net), self._existing("demo"))
         assert any("имя" in e for e in errors)
 
+    def test_exclude_name_allows_renaming_to_self(self, tmp_path):
+        net, pro = self._write_pair(tmp_path)
+        # переименование demo -> demo (имя не менялось) с exclude_name не дубль
+        assert validate_new_project("demo", str(pro), str(net),
+                                    self._existing("demo", "other"),
+                                    exclude_name="demo") == []
+
+    def test_exclude_name_still_catches_other_duplicate(self, tmp_path):
+        net, pro = self._write_pair(tmp_path)
+        # переименование demo -> other (имя занято другим проектом) — ошибка
+        errors = validate_new_project("other", str(pro), str(net),
+                                      self._existing("demo", "other"),
+                                      exclude_name="demo")
+        assert any("уже есть" in e for e in errors)
+
 
 class TestRemoveProject:
     CONFIG_TWO = """\
@@ -265,5 +281,60 @@ output:
         original = p.read_text(encoding="utf-8")
         with pytest.raises(ValueError, match="nope"):
             remove_project(p, "nope")
+        assert p.read_text(encoding="utf-8") == original
+        assert not (tmp_path / "config.yaml.bak").exists()
+
+
+class TestUpdateProject:
+    CONFIG = TestRemoveProject.CONFIG_TWO
+
+    def test_rename(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG, encoding="utf-8")
+        update_project(p, "demo", ProjectConfig(
+            name="demo-renamed", kicad_project="./new.kicad_pro",
+            netlist="./new.net", output_dir="./new_out",
+        ))
+
+        text = p.read_text(encoding="utf-8")
+        assert "- name: demo-renamed" in text
+        assert "- name: other" in text  # соседняя запись не тронута
+        assert "# Шапка." in text       # комментарий выжил
+
+        cfg = load_config(p)
+        # единственный источник истины — перечитывание конфига
+        assert [pr.name for pr in cfg.projects] == ["demo-renamed", "other"]
+
+    def test_edit_without_rename(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG, encoding="utf-8")
+        update_project(p, "other", ProjectConfig(
+            name="other", kicad_project="./other2.kicad_pro",
+            netlist="./other2.net", output_dir="./other2_out",
+        ))
+        cfg = load_config(p)
+        assert cfg.projects[1].kicad_project == "./other2.kicad_pro"
+        assert cfg.projects[1].netlist == "./other2.net"
+        assert cfg.projects[1].output_dir == "./other2_out"
+
+    def test_backup_created(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG, encoding="utf-8")
+        original = p.read_text(encoding="utf-8")
+        update_project(p, "demo", ProjectConfig(
+            name="demo-x", kicad_project="x.kicad_pro", netlist="x.net", output_dir="x/out",
+        ))
+        bak = tmp_path / "config.yaml.bak"
+        assert bak.exists()
+        assert bak.read_text(encoding="utf-8") == original
+
+    def test_missing_old_name_raises_and_config_untouched(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG, encoding="utf-8")
+        original = p.read_text(encoding="utf-8")
+        with pytest.raises(ValueError, match="nope"):
+            update_project(p, "nope", ProjectConfig(
+                name="x", kicad_project="x", netlist="x", output_dir="x",
+            ))
         assert p.read_text(encoding="utf-8") == original
         assert not (tmp_path / "config.yaml.bak").exists()

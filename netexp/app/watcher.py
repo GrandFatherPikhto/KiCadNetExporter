@@ -116,6 +116,23 @@ class _TrackedFileHandler(FileSystemEventHandler):
     def is_frozen(self, name: str) -> bool:
         return name in self.frozen
 
+    def update_project(self, old_name: str, project: ProjectConfig) -> None:
+        """Переносит регистрацию проекта в watcher при правке путей/переименовании:
+        снимает старые пути с отслеживания, ставит новые, переносит статус
+        заморозки на новое имя (если проект был заморожен под старым именем).
+
+        Без переноса статуса в self.frozen осталось бы висеть старое имя
+        (мёртвая запись), а переименованный проект выглядел бы «активным» —
+        поэтому сначала запоминаем was_frozen, потом снимаем регистрацию.
+        """
+        was_frozen = self.is_frozen(old_name)
+        self.unregister_project(old_name)
+        if was_frozen:
+            self.frozen.discard(old_name)
+        self.register_project(project)
+        if was_frozen:
+            self.frozen.add(project.name)
+
     def _check_stale(self, project: ProjectConfig) -> None:
         """Схема новее нетлиста дольше grace-периода — уведомить один раз за эпизод."""
         net_path = Path(project.netlist)

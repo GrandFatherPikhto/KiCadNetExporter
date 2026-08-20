@@ -144,8 +144,13 @@ def load_config(path: str | Path) -> AppConfig:
 
 
 def validate_new_project(name: str, kicad_project: str, netlist: str,
-                         existing: list[ProjectConfig]) -> list[str]:
-    """Проверка данных нового проекта перед добавлением (через диалог трея).
+                         existing: list[ProjectConfig],
+                         exclude_name: str | None = None) -> list[str]:
+    """Проверка данных нового проекта перед добавлением (через окно трея).
+
+    exclude_name — имя проекта, которое при проверке дубликата имени надо
+    игнорировать (сам редактируемый проект при переименовании): переименование
+    в своё же текущее имя не должно считаться дублем.
 
     Возвращает список ошибок (пустой список — всё в порядке). Чистая функция
     без Tk-зависимостей, чтобы её можно было тестировать отдельно от UI.
@@ -157,7 +162,7 @@ def validate_new_project(name: str, kicad_project: str, netlist: str,
         errors.append("Файл проекта (.kicad_pro) не найден — проверьте путь")
     if not netlist or not Path(netlist).is_file():
         errors.append("Файл нетлиста (.net) не найден — проверьте путь")
-    if any(p.name == name for p in existing):
+    if any(p.name == name for p in existing if p.name != exclude_name):
         errors.append(f"Проект с именем «{name}» уже есть в конфиге")
     return errors
 
@@ -235,6 +240,56 @@ def remove_project(config_path: Path, name: str) -> None:
         raise ValueError(f"Проект «{name}» не найден в конфиге {config_path}")
 
     projects.remove(target)
+
+    # Бэкап текущего файла — при сбое записи останется возможность откатиться.
+    backup_path = config_path.with_name(config_path.name + ".bak")
+    backup_path.write_bytes(config_path.read_bytes())
+
+    # Пишем через временный файл в той же директории, затем атомарно заменяем.
+    fd, tmp_name = tempfile.mkstemp(dir=str(config_path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml_rt.dump(doc, f)
+        os.replace(tmp_name, config_path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+
+
+def update_project(config_path: Path, old_name: str, project: ProjectConfig) -> None:
+    """Обновляет существующий проект в YAML (в т.ч. переименование), сохраняя
+    комментарии/форматирование остального файла. Ищет запись по old_name и
+    правит её поля на месте (не удаляет+вставляет — так исходные комментарии
+    у конкретной записи, если есть, сохраняются надёжнее).
+
+    Тот же паттерн, что append_project/remove_project: бэкап <имя>.bak,
+    атомарная запись через temp-файл + os.replace(). Если проекта с old_name
+    в файле нет — ValueError (конфиг не трогается).
+    """
+    from ruamel.yaml import YAML
+
+    config_path = Path(config_path)
+
+    yaml_rt = YAML(typ="rt")
+    yaml_rt.preserve_quotes = True
+
+    with open(config_path, encoding="utf-8") as f:
+        doc = yaml_rt.load(f)
+
+    projects = doc.get("projects")
+    target = None
+    if projects is not None:
+        for p in projects:
+            if p.get("name") == old_name:
+                target = p
+                break
+    if target is None:
+        raise ValueError(f"Проект «{old_name}» не найден в конфиге {config_path}")
+
+    target["name"] = project.name
+    target["kicad_project"] = project.kicad_project
+    target["netlist"] = project.netlist
+    target["output_dir"] = project.output_dir
 
     # Бэкап текущего файла — при сбое записи останется возможность откатиться.
     backup_path = config_path.with_name(config_path.name + ".bak")
