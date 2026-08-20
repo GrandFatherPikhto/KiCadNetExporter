@@ -1,4 +1,5 @@
-"""Тесты вотчера: _TrackedFileHandler (debounce, пауза, stale-уведомления)."""
+"""Тесты вотчера: _TrackedFileHandler (debounce, пауза, stale-уведомления,
+регистрация нового проекта без перезапуска)."""
 from __future__ import annotations
 
 import os
@@ -159,3 +160,75 @@ class TestCheckStale:
         handler._sch_mtime[project.name] = now - 60
         handler._check_stale(project)
         assert notifications == []
+
+
+class TestRegisterProject:
+    @staticmethod
+    def _new_project(tmp_path) -> tuple[ProjectConfig, Path]:
+        new_dir = tmp_path / "other"
+        new_dir.mkdir()
+        net = new_dir / "b.net"
+        pro = new_dir / "b.kicad_pro"
+        sch = new_dir / "b.kicad_sch"
+        net.write_text(T.SAMPLE_NET, encoding="utf-8")
+        pro.write_text(T.SAMPLE_KICAD_PRO, encoding="utf-8")
+        sch.write_text("(kicad_sch)", encoding="utf-8")
+        return ProjectConfig(name="b", kicad_project=str(pro), netlist=str(net),
+                             output_dir=str(new_dir / "out")), new_dir
+
+    def test_register_adds_paths_and_tracks_dir(self, tmp_path):
+        config, project = _make_config(tmp_path)
+        handler = _handler(config)
+        new_project, new_dir = self._new_project(tmp_path)
+
+        handler.register_project(new_project)
+
+        resolved_keys = {k for k in handler.watch_map}
+        assert str((new_dir / "b.net").resolve()) in resolved_keys
+        assert str((new_dir / "b.kicad_pro").resolve()) in resolved_keys
+        assert str((new_dir / "b.kicad_sch").resolve()) in handler.sch_watch_map
+        assert str(new_dir.resolve()) in handler.watched_dirs
+
+    def test_register_schedules_directory_in_observer(self, tmp_path):
+        config, project = _make_config(tmp_path)
+        handler = _handler(config)
+        new_project, new_dir = self._new_project(tmp_path)
+
+        scheduled: list[tuple[str, bool]] = []
+
+        class FakeObserver:
+            def schedule(self, event_handler, path, recursive=False):
+                scheduled.append((str(Path(path).resolve()), recursive))
+
+        handler.observer = FakeObserver()
+        handler.register_project(new_project)
+
+        assert str(new_dir.resolve()) in handler.watched_dirs
+        assert (str(new_dir.resolve()), False) in scheduled
+
+    def test_register_is_idempotent_for_tracked_dir(self, tmp_path):
+        config, project = _make_config(tmp_path)
+        handler = _handler(config)
+        new_project, new_dir = self._new_project(tmp_path)
+
+        handler.register_project(new_project)
+        handler.register_project(new_project)  # повторно — без исключений и дублей
+
+        assert len(handler.watched_dirs) == 1
+        assert str(new_dir.resolve()) in handler.watched_dirs
+
+    def test_register_skips_missing_files(self, tmp_path):
+        config, project = _make_config(tmp_path)
+        handler = _handler(config)
+        new_dir = tmp_path / "other"
+        new_dir.mkdir()
+        new_project = ProjectConfig(
+            name="b", kicad_project=str(new_dir / "missing.kicad_pro"),
+            netlist=str(new_dir / "missing.net"), output_dir=str(new_dir / "out"),
+        )
+
+        handler.register_project(new_project)
+
+        # файлы не существуют — в watch_map ничего не добавляется
+        assert str(new_dir.resolve()) not in handler.watched_dirs
+        assert all(p.name != "missing.kicad_pro" for p in handler.watch_map.values())

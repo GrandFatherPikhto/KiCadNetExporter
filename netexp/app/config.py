@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -139,3 +141,66 @@ def load_config(path: str | Path) -> AppConfig:
         logging=logging_cfg,
         tray=tray,
     )
+
+
+def validate_new_project(name: str, kicad_project: str, netlist: str,
+                         existing: list[ProjectConfig]) -> list[str]:
+    """Проверка данных нового проекта перед добавлением (через диалог трея).
+
+    Возвращает список ошибок (пустой список — всё в порядке). Чистая функция
+    без Tk-зависимостей, чтобы её можно было тестировать отдельно от UI.
+    """
+    errors: list[str] = []
+    if not name:
+        errors.append("Не задано имя проекта")
+    if not kicad_project or not Path(kicad_project).is_file():
+        errors.append("Файл проекта (.kicad_pro) не найден — проверьте путь")
+    if not netlist or not Path(netlist).is_file():
+        errors.append("Файл нетлиста (.net) не найден — проверьте путь")
+    if any(p.name == name for p in existing):
+        errors.append(f"Проект с именем «{name}» уже есть в конфиге")
+    return errors
+
+
+def append_project(config_path: Path, project: ProjectConfig) -> None:
+    """Дописывает проект в YAML-конфиг, сохраняя комментарии и форматирование
+    остального файла (round-trip через ruamel.yaml).
+
+    Перед перезаписью делает бэкап <имя>.yaml.bak, а саму запись выполняет
+    через временный файл + os.replace() — оригинал не затирается напрямую,
+    если что-то пойдёт не так.
+    """
+    from ruamel.yaml import YAML
+
+    config_path = Path(config_path)
+
+    yaml_rt = YAML(typ="rt")
+    yaml_rt.preserve_quotes = True
+
+    with open(config_path, encoding="utf-8") as f:
+        doc = yaml_rt.load(f)
+
+    projects = doc.get("projects")
+    if projects is None:
+        projects = []
+        doc["projects"] = projects
+    projects.append({
+        "name": project.name,
+        "kicad_project": project.kicad_project,
+        "netlist": project.netlist,
+        "output_dir": project.output_dir,
+    })
+
+    # Бэкап текущего файла — при сбое записи останется возможность откатиться.
+    backup_path = config_path.with_name(config_path.name + ".bak")
+    backup_path.write_bytes(config_path.read_bytes())
+
+    # Пишем через временный файл в той же директории, затем атомарно заменяем.
+    fd, tmp_name = tempfile.mkstemp(dir=str(config_path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml_rt.dump(doc, f)
+        os.replace(tmp_name, config_path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)

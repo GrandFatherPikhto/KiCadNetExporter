@@ -17,6 +17,7 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -43,6 +44,8 @@ class _TrackedFileHandler(FileSystemEventHandler):
         self.sch_watch_map: dict[str, ProjectConfig] = {}
         self._sch_mtime: dict[str, float] = {}          # project.name -> mtime схемы на момент правки
         self._notified_stale: dict[str, bool] = {}       # project.name -> уже уведомили про этот эпизод
+        self.observer: Optional[Observer] = None         # выставляется в run_watch_loop
+        self.watched_dirs: set[str] = set()              # директории, уже запланированные в observer
 
         for project in config.projects:
             for raw_path in (project.netlist, project.kicad_project):
@@ -55,6 +58,38 @@ class _TrackedFileHandler(FileSystemEventHandler):
             proj_dir = Path(project.kicad_project).resolve().parent
             for sch in glob.glob(str(proj_dir / "*.kicad_sch")):
                 self.sch_watch_map[str(Path(sch).resolve())] = project
+
+    def register_project(self, project: ProjectConfig) -> None:
+        """Регистрирует новый проект в живом наблюдателе без перезапуска
+        приложения: добавляет пути в watch_map/sch_watch_map и, если директория
+        ещё не отслеживается, планирует её в observer. Вызывается из фонового
+        потока диалога — только простые thread-safe операции (вставки в словари
+        и observer.schedule), без обращения к UI из чужого потока."""
+        for raw_path in (project.netlist, project.kicad_project):
+            p = Path(raw_path)
+            if p.exists():
+                self.watch_map[str(p.resolve())] = project
+            else:
+                logger.warning("Файл не найден (пока не слежу за ним): %s", raw_path)
+
+        proj_dir = Path(project.kicad_project).resolve().parent
+        for sch in glob.glob(str(proj_dir / "*.kicad_sch")):
+            self.sch_watch_map[str(Path(sch).resolve())] = project
+
+        for raw_path in (project.netlist, project.kicad_project):
+            p = Path(raw_path)
+            if not p.exists():
+                continue
+            d = str(p.resolve().parent)
+            if d in self.watched_dirs:
+                continue
+            if not Path(d).is_dir():
+                logger.warning("Директория не существует, слежение пропущено: %s", d)
+                continue
+            if self.observer is not None:
+                self.observer.schedule(self, path=d, recursive=False)
+            self.watched_dirs.add(d)
+            logger.info("Слежу за директорией (новый проект): %s", d)
 
     def _check_stale(self, project: ProjectConfig) -> None:
         """Схема новее нетлиста дольше grace-периода — уведомить один раз за эпизод."""
@@ -117,10 +152,25 @@ class _TrackedFileHandler(FileSystemEventHandler):
             logger.exception("Пайплайн упал для проекта %s", project.name)
 
 
+@dataclass
+class WatchHandle:
+    """Небольшой shared-объект между main.py / watcher.py / tray.py: живой
+    handler и observer наблюдателя. Нужен, чтобы добавлять новые проекты в
+    слежение без перезапуска приложения (см. tray.py: on_add_project).
+    Заполняется внутри run_watch_loop, когда наблюдатель поднимается."""
+    handler: Optional[_TrackedFileHandler] = None
+    observer: Optional[Observer] = None
+
+
 def run_watch_loop(config: AppConfig, stop_flag: threading.Event, paused: threading.Event,
-                   on_stale: Optional[Callable[[str, str], None]] = None) -> None:
+                   on_stale: Optional[Callable[[str, str], None]] = None,
+                   handle: Optional[WatchHandle] = None) -> None:
     handler = _TrackedFileHandler(config, paused, on_stale=on_stale)
     observer = Observer()
+    if handle is not None:
+        handle.handler = handler
+        handle.observer = observer
+        handler.observer = observer
 
     watched_dirs = {
         str(Path(p).resolve().parent)
@@ -130,6 +180,7 @@ def run_watch_loop(config: AppConfig, stop_flag: threading.Event, paused: thread
     for d in watched_dirs:
         if Path(d).is_dir():
             observer.schedule(handler, path=d, recursive=False)
+            handler.watched_dirs.add(d)
             logger.info("Слежу за директорией: %s", d)
         else:
             logger.warning("Директория не существует, слежение пропущено: %s", d)

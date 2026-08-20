@@ -9,7 +9,7 @@ from pathlib import Path
 from .config import load_config
 from .logging_setup import setup_logging
 from .pipeline import run_project
-from .watcher import run_watch_loop
+from .watcher import WatchHandle, run_watch_loop
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +46,17 @@ def main() -> None:
     stop_flag = threading.Event()
     paused = threading.Event()
 
+    # Shared-объект между main/watcher/tray: заполняется в run_watch_loop живым
+    # handler/observer, чтобы пункт «Добавить проект...» мог завести новый
+    # проект в слежении без перезапуска приложения.
+    watch_handle = WatchHandle()
+
     icon = None
     if config.tray.enabled and not args.no_tray:
         try:
             from .tray import build_icon
-            icon = build_icon(config, stop_flag, paused, log_path)
+            icon = build_icon(config, stop_flag, paused, log_path,
+                              config_path=config_path, watch_handle=watch_handle)
         except Exception:
             logger.exception("Не удалось создать иконку в трее — работаю без неё")
 
@@ -62,7 +68,9 @@ def main() -> None:
                 logger.exception("Не удалось показать уведомление трея")
 
     watch_thread = threading.Thread(
-        target=run_watch_loop, args=(config, stop_flag, paused, on_stale), daemon=True
+        target=run_watch_loop,
+        args=(config, stop_flag, paused, on_stale, watch_handle),
+        daemon=True,
     )
     watch_thread.start()
     logger.info("Наблюдатель запущен")

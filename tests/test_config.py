@@ -1,9 +1,14 @@
-"""Тесты загрузки YAML-конфига: load_config."""
+"""Тесты загрузки YAML-конфига: load_config, append_project, validate_new_project."""
 from __future__ import annotations
 
 import pytest
 
-from netexp.app.config import load_config
+from netexp.app.config import (
+    ProjectConfig,
+    append_project,
+    load_config,
+    validate_new_project,
+)
 
 VALID_YAML = """\
 projects:
@@ -115,3 +120,98 @@ class TestLoadConfig:
             "projects:\n  - kicad_project: a.kicad_pro\n    netlist: a.net\n"
         )))
         assert cfg.classification.power_patterns  # не пусто по умолчанию
+
+
+class TestAppendProject:
+    CONFIG_WITH_COMMENTS = """\
+# Шапка — комментарий, который нельзя терять.
+# Ещё пояснение к проектам.
+
+projects:
+  - name: demo
+    kicad_project: "./demo.kicad_pro"
+    netlist: "./demo.net"
+    output_dir: "./out"
+
+output:
+  formats: [txt, json]
+"""
+
+    def test_comments_survive_and_entry_appended(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG_WITH_COMMENTS, encoding="utf-8")
+        append_project(p, ProjectConfig(
+            name="newproj", kicad_project="./new.kicad_pro",
+            netlist="./new.net", output_dir="./new_out",
+        ))
+
+        text = p.read_text(encoding="utf-8")
+        assert "# Шапка — комментарий, который нельзя терять." in text
+        assert "# Ещё пояснение к проектам." in text
+        assert "- name: newproj" in text
+        assert "kicad_project: ./new.kicad_pro" in text
+        assert "netlist: ./new.net" in text
+        assert "output_dir: ./new_out" in text
+
+        # бэкап создан
+        assert (tmp_path / "config.yaml.bak").exists()
+
+        # файл после дописывания остаётся валидным для load_config
+        cfg = load_config(p)
+        assert len(cfg.projects) == 2
+        assert cfg.projects[-1].name == "newproj"
+        assert cfg.projects[-1].output_dir == "./new_out"
+
+    def test_backup_matches_original(self, tmp_path):
+        p = tmp_path / "config.yaml"
+        p.write_text(self.CONFIG_WITH_COMMENTS, encoding="utf-8")
+        original = p.read_text(encoding="utf-8")
+        append_project(p, ProjectConfig(
+            name="x", kicad_project="x.kicad_pro", netlist="x.net", output_dir="x/out",
+        ))
+        assert (tmp_path / "config.yaml.bak").read_text(encoding="utf-8") == original
+
+
+class TestValidateNewProject:
+    @staticmethod
+    def _existing(*names):
+        return [ProjectConfig(name=n, kicad_project="x", netlist="x", output_dir="x")
+                for n in names]
+
+    @staticmethod
+    def _write_pair(tmp_path, stem="a"):
+        net = tmp_path / f"{stem}.net"
+        pro = tmp_path / f"{stem}.kicad_pro"
+        net.write_text("(netlist)", encoding="utf-8")
+        pro.write_text("(kicad_pro)", encoding="utf-8")
+        return net, pro
+
+    def test_ok(self, tmp_path):
+        net, pro = self._write_pair(tmp_path)
+        assert validate_new_project("new", str(pro), str(net),
+                                    self._existing("demo")) == []
+
+    def test_missing_files(self, tmp_path):
+        errors = validate_new_project(
+            "new", str(tmp_path / "nope.kicad_pro"), str(tmp_path / "nope.net"),
+            self._existing("demo"))
+        assert len(errors) == 2
+        assert any("kicad_pro" in e for e in errors)
+        assert any(".net" in e for e in errors)
+
+    def test_duplicate_name(self, tmp_path):
+        net, pro = self._write_pair(tmp_path)
+        errors = validate_new_project("dup", str(pro), str(net),
+                                      self._existing("demo", "dup"))
+        assert any("уже есть" in e for e in errors)
+
+    def test_duplicate_and_missing_files_reported_together(self, tmp_path):
+        errors = validate_new_project(
+            "demo", str(tmp_path / "no.kicad_pro"), str(tmp_path / "no.net"),
+            self._existing("demo"))
+        assert len(errors) == 3  # дубликат + оба файла не найдены
+
+    def test_empty_name_is_error(self, tmp_path):
+        net, pro = self._write_pair(tmp_path)
+        errors = validate_new_project("", str(pro), str(net), self._existing("demo"))
+        assert any("имя" in e for e in errors)
