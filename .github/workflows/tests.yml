@@ -1,0 +1,71 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: tests (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python-version: ["3.13", "3.15"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          # 3.15 может ещё не быть стабильной в setup-python — тогда берём пре-релиз.
+          allow-prereleases: true
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      # Проверка платформенных зависимостей: на Windows трей должен
+      # импортироваться (pystray/pillow стоят), импорт tray.py окно не создаёт
+      # (Tk импортируется лениво).
+      - name: Check Windows-only deps present (Windows)
+        if: runner.os == 'Windows'
+        run: python -c "import pystray, PIL, netexp.app.tray"
+
+      # На Linux pystray ставиться не должен (маркер sys_platform == "win32").
+      - name: Check pystray absent (Linux)
+        if: runner.os == 'Linux'
+        run: python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('pystray') is not None)"
+
+  build-windows:
+    name: build (windows, py3.13, exe)
+    needs: tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install deps and PyInstaller
+        run: pip install -r requirements.txt pyinstaller
+
+      # Цель — убедиться, что Windows-сборка не сломалась. Сам spec не меняем.
+      # Если UPX на раннере нет, PyInstaller просто его пропустит.
+      - name: Build exe
+        run: pyinstaller KiCadNetExporter.spec
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KiCadNetExporter-windows
+          path: dist/KiCadNetExporter.exe
+          if-no-files-found: error
