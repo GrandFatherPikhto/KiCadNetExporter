@@ -155,11 +155,18 @@ class _TrackedFileHandler(FileSystemEventHandler):
                          f"Схема изменена, а нетлист не переэкспортирован. "
                          f"Export Netlist в eeschema для проекта {project.name!r}.")
 
-    def on_modified(self, event):
-        if event.is_directory:
-            return
+    def _handle_path(self, raw_path: str) -> None:
+        """Общая обработка пути для modified/created/moved: сверка с
+        sch_watch_map и watch_map, пауза/заморозка, debounce, settle_delay,
+        запуск пайплайна.
+
+        Вынесено из on_modified, потому что KiCad на Linux (и Syncthing)
+        сохраняет файлы не записью на месте, а переименованием временного
+        файла поверх целевого — тогда приходит только FileMovedEvent. Логика
+        самого решения «перезапускать пайплайн или нет» не менялась.
+        """
         try:
-            path = str(Path(event.src_path).resolve())
+            path = str(Path(raw_path).resolve())
         except OSError:
             return
 
@@ -193,6 +200,26 @@ class _TrackedFileHandler(FileSystemEventHandler):
             logger.error("Пайплайн пропущен для проекта %s: %s", project.name, e)
         except Exception:
             logger.exception("Пайплайн упал для проекта %s", project.name)
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        self._handle_path(event.src_path)
+
+    def on_moved(self, event):
+        # Берём dest_path, а не src_path: при сохранении через rename src —
+        # это временный файл (*.kicad-save-* у KiCad, .syncthing.*.tmp у
+        # Syncthing), его не отслеживаем; важно итоговое имя.
+        if event.is_directory:
+            return
+        self._handle_path(event.dest_path)
+
+    def on_created(self, event):
+        # На случай редакторов/утилит, которые удаляют файл и создают заново;
+        # записи и так покрыты modified/moved.
+        if event.is_directory:
+            return
+        self._handle_path(event.src_path)
 
 
 @dataclass

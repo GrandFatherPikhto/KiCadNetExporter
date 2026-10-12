@@ -7,7 +7,13 @@ import threading
 import time as _time
 from pathlib import Path
 
-from watchdog.events import FileModifiedEvent
+from watchdog.events import (
+    DirCreatedEvent,
+    DirMovedEvent,
+    FileCreatedEvent,
+    FileModifiedEvent,
+    FileMovedEvent,
+)
 
 from netexp.app.config import (
     AppConfig,
@@ -19,7 +25,7 @@ from netexp.app.config import (
     WatchConfig,
 )
 from netexp.app import watcher as watcher_mod
-from netexp.app.watcher import _TrackedFileHandler
+from netexp.app.watcher import WatchHandle, _TrackedFileHandler
 
 from . import data as T
 
@@ -380,3 +386,166 @@ class TestUpdateProject:
         assert handler.is_frozen("b") is False
         handler.on_modified(FileModifiedEvent(str(tmp_path / "b.net")))
         assert calls == ["b"]
+
+
+class TestMovedCreatedEvents:
+    """KiCad на Linux и Syncthing сохраняют файл не записью на месте, а
+    переименованием временного файла поверх целевого — приходит
+    FileMovedEvent, где src — временный, а dest — итоговый. Редакторы/утилиты
+    могут удалять файл и создавать заново — FileCreatedEvent. Раньше
+    обрабатывался только on_modified, из-за чего на Linux пайплайн вообще не
+    перезапускался."""
+
+    def test_moved_net_triggers_pipeline(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project",
+                            lambda proj, cfg: calls.append(proj.name))
+        handler = _handler(config)
+        handler.on_moved(FileMovedEvent(
+            str(tmp_path / "demo.net.kicad-save-780149-0"),
+            str(tmp_path / "demo.net"),
+        ))
+        assert calls == ["demo"]
+
+    def test_moved_schematic_sets_sch_mtime_without_pipeline(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        sch = tmp_path / "demo.kicad_sch"
+        sch.write_text("(kicad_sch)", encoding="utf-8")
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project", lambda *a, **k: calls.append(1))
+        handler = _handler(config)
+        handler.on_moved(FileMovedEvent(
+            str(tmp_path / "demo.kicad_sch.kicad-save-780176-0"),
+            str(sch),
+        ))
+        # схема обновилась — фиксируем время правки, но пайплайн не запускаем
+        assert calls == []
+        assert handler._sch_mtime[project.name] > 0
+
+    def test_moved_from_tracked_to_untracked_ignored(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project", lambda *a, **k: calls.append(1))
+        handler = _handler(config)
+        # переименовали ИЗ отслеживаемого имени: dest нас не интересует
+        handler.on_moved(FileMovedEvent(
+            str(tmp_path / "demo.net"),
+            str(tmp_path / "demo-renamed.net"),
+        ))
+        assert calls == []
+
+    def test_created_net_triggers_pipeline(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project",
+                            lambda proj, cfg: calls.append(proj.name))
+        handler = _handler(config)
+        handler.on_created(FileCreatedEvent(str(tmp_path / "demo.net")))
+        assert calls == ["demo"]
+
+    def test_moved_then_modified_runs_once(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path, debounce=100.0)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project", lambda *a, **k: calls.append(1))
+        handler = _handler(config)
+        # на Windows на одно сохранение могут прийти и moved, и modified —
+        # второй вызов отсекает debounce
+        handler.on_moved(FileMovedEvent(
+            str(tmp_path / "demo.net.kicad-save-1-0"),
+            str(tmp_path / "demo.net"),
+        ))
+        handler.on_modified(FileModifiedEvent(str(tmp_path / "demo.net")))
+        assert len(calls) == 1
+
+    def test_directory_events_ignored(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project", lambda *a, **k: calls.append(1))
+        handler = _handler(config)
+        handler.on_created(DirCreatedEvent(str(tmp_path)))
+        handler.on_moved(DirMovedEvent(str(tmp_path / "old"), str(tmp_path / "demo.net")))
+        assert calls == []
+
+    def test_paused_ignores_moved_and_created(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project", lambda *a, **k: calls.append(1))
+        paused = threading.Event()
+        paused.set()
+        handler = _handler(config, paused=paused)
+        handler.on_moved(FileMovedEvent(str(tmp_path / "save.tmp"), str(tmp_path / "demo.net")))
+        handler.on_created(FileCreatedEvent(str(tmp_path / "demo.net")))
+        assert calls == []
+
+    def test_frozen_ignores_moved_and_created(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path)
+        calls = []
+        monkeypatch.setattr(watcher_mod, "run_project", lambda *a, **k: calls.append(1))
+        handler = _handler(config)
+        handler.set_frozen("demo", True)
+        handler.on_moved(FileMovedEvent(str(tmp_path / "save.tmp"), str(tmp_path / "demo.net")))
+        handler.on_created(FileCreatedEvent(str(tmp_path / "demo.net")))
+        assert calls == []
+
+
+def _wait_until(predicate, timeout: float = 10.0, interval: float = 0.05) -> bool:
+    """Опрос до timeout вместо голого sleep: события файловой системы приходят
+    асинхронно, фиксированная задержка была бы либо flaky, либо медленной."""
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if predicate():
+            return True
+        _time.sleep(interval)
+    return False
+
+
+class TestObserverIntegration:
+    """Проверка на настоящем Observer: inotify на Linux, ReadDirectoryChangesW
+    на Windows. Гоняем run_watch_loop в отдельном потоке и проверяем оба
+    способа сохранения — переименованием (KiCad/Syncthing) и записью на месте.
+    Главная защита от регрессии под Windows после правки watcher'а."""
+
+    def test_replace_and_inplace_save_both_trigger_pipeline(self, tmp_path, monkeypatch):
+        config, project = _make_config(tmp_path, debounce=0.5)
+        seen: list[str] = []
+        monkeypatch.setattr(watcher_mod, "run_project",
+                            lambda proj, cfg: seen.append(proj.name))
+        stop_flag = threading.Event()
+        paused = threading.Event()
+        handle = WatchHandle()
+        thread = threading.Thread(
+            target=watcher_mod.run_watch_loop,
+            args=(config, stop_flag, paused, None, handle),
+            daemon=True,
+        )
+        thread.start()
+        try:
+            # Ждём, пока наблюдатель поднимется и запланирует директории, иначе
+            # запись может произойти до observer.start() и потеряться.
+            assert _wait_until(
+                lambda: handle.handler is not None and bool(handle.handler.watched_dirs)
+            ), "наблюдатель не запустился"
+            _time.sleep(0.5)  # дать observer.start() встать на дежурство
+
+            net = tmp_path / "demo.net"
+
+            # Сценарий 1: запись во временный файл + os.replace() поверх demo.net
+            staged = tmp_path / "demo.net.kicad-save-1-0"
+            staged.write_text(T.SAMPLE_NET + "\n", encoding="utf-8")
+            os.replace(staged, net)
+            assert _wait_until(lambda: len(seen) >= 1), \
+                "rename-сохранение не запустило пайплайн"
+
+            # Сброс debounce, иначе второй сценарий отсечётся первым запуском.
+            handle.handler._last_run.clear()
+            seen.clear()
+
+            # Сценарий 2: перезапись demo.net на месте
+            net.write_text(T.SAMPLE_NET + "\n\n", encoding="utf-8")
+            assert _wait_until(lambda: len(seen) >= 1), \
+                "запись на месте не запустила пайплайн"
+        finally:
+            stop_flag.set()
+            thread.join(timeout=5)
+        assert not thread.is_alive()
