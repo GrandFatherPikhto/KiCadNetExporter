@@ -1,6 +1,8 @@
 sexpdata>=1.0.0
 PyYAML>=6.0
 watchdog>=4.0
-pystray>=0.19
-pillow>=10.0
+# pystray и pillow нужны только трею (tray.py) — на Linux/демоне их не ставим.
+pystray>=0.19; sys_platform == "win32"
+pillow>=10.0; sys_platform == "win32"
+# ruamel.yaml использует config.py (round-trip запись YAML) — нужен на всех платформах.
 ruamel.yaml>=0.18

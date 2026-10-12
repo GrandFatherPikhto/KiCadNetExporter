@@ -64,6 +64,9 @@ fp-info-cache
 
 *.zip
 *.txt
+# requirements.txt уже отслеживается git'ом, но новые *.txt (например
+# requirements-dev.txt) иначе попали бы под правило выше — исключаем их явно.
+!requirements*.txt
 
 zip_project.yaml
 
