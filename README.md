@@ -1,5 +1,7 @@
 # KiCad Net Exporter
 
+[![tests](https://github.com/GrandFatherPikhto/KiCadNetExporter/actions/workflows/tests.yml/badge.svg)](https://github.com/GrandFatherPikhto/KiCadNetExporter/actions/workflows/tests.yml)
+
 Simplifies and flattens KiCad netlists (including hierarchical projects) into a
 form readable by both humans and AI, audits netclass classification of nets,
 watches project files in the background, and places reports next to the project.
@@ -83,6 +85,64 @@ Autostart at Windows login — the simplest way: a shortcut to
 `pythonw.exe -m netexp.app.main C:\path\to\config.yaml` in the
 `shell:startup` folder.
 
+## Linux (daemon)
+
+On Linux the app runs as a plain background daemon with no UI: no tray, no
+settings window, no pop-up notifications. The "schematic newer than netlist"
+warning goes to the log only (WARNING). The config is edited by hand.
+
+1. Venv and dependencies:
+
+   ```bash
+   python3 -m venv .venv
+   .venv/bin/pip install -r requirements.txt
+   ```
+
+2. Config:
+
+   ```bash
+   mkdir -p ~/.config/kicad-net-exporter
+   cp packaging/linux/config.example.yaml ~/.config/kicad-net-exporter/config.yaml
+   ```
+
+   Then add your projects. Paths may use `~`.
+
+3. One-off check (reports land in `output_dir`):
+
+   ```bash
+   .venv/bin/python run.py ~/.config/kicad-net-exporter/config.yaml --once
+   ```
+
+4. Install the systemd user unit:
+
+   ```bash
+   mkdir -p ~/.config/systemd/user
+   cp packaging/linux/kicad-net-exporter.service ~/.config/systemd/user/
+   ```
+
+   Adjust the paths in the unit file, then:
+
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user enable --now kicad-net-exporter
+   ```
+
+5. Logs and restart:
+
+   ```bash
+   journalctl --user -u kicad-net-exporter -f
+   # after editing the config:
+   systemctl --user restart kicad-net-exporter
+   ```
+
+There is no tray, settings window or stale-netlist notification on Linux.
+
+> **Syncthing.** If the daemon runs on both Windows and Linux over the same
+> synced folder, every netlist export regenerates `out/` on both machines —
+> hence `*.sync-conflict-*` in `out/` and "extra" entries in `*_diff.*`. Keep
+> the daemon running only on the machine you are currently working on, or
+> exclude `out/` from sync via `.stignore`.
+
 ## What gets generated in output_dir
 
 For each project, for each enabled format (`txt`/`json`/`md`):
@@ -109,7 +169,7 @@ Unit tests (`pytest`) live in `tests/` and cover models, parsers
 (config, pipeline, watcher, logging). Synthetic test data is generated in `tests/data.py`.
 
 ```bash
-pip install pytest
+pip install -r requirements-dev.txt
 python -m pytest
 ```
 
@@ -147,6 +207,9 @@ except `net_parser.py` — exactly why the interface in `core/interfaces.py` exi
 - The KiCad IPC API (`kipy`) in versions 9 and 10 doesn't support the schematic
   editor — the data source for netlist/BOM/netclass remains file-based
   (`.net` + `.kicad_pro`) for the foreseeable future.
+- If the `.net` file does not exist when the daemon starts, it won't be added to
+  the watched files (`watch_map`), and its changes will be ignored until a
+  restart. Same behaviour on Windows and Linux.
 
 ## Building an installer
 

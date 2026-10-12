@@ -1,5 +1,7 @@
 # KiCad Net Exporter
 
+[![tests](https://github.com/GrandFatherPikhto/KiCadNetExporter/actions/workflows/tests.yml/badge.svg)](https://github.com/GrandFatherPikhto/KiCadNetExporter/actions/workflows/tests.yml)
+
 Упрощает и уплощает нетлист KiCad (в т.ч. иерархических проектов) до
 читаемого человеком и ИИ вида, аудирует netclass-классификацию цепей,
 следит за файлами проекта в фоне и кладёт отчёты рядом с проектом.
@@ -84,6 +86,64 @@ pythonw -m netexp.app.main config.yaml
 `pythonw.exe -m netexp.app.main C:\путь\к\config.yaml` в папке
 `shell:startup`.
 
+## Linux (демон)
+
+На Linux приложение работает как обычный фоновый демон без UI: трея, окна
+настроек и всплывающих уведомлений нет. Предупреждение «схема новее
+нетлиста» пишется только в лог (WARNING). Конфиг правится руками.
+
+1. Venv и зависимости:
+
+   ```bash
+   python3 -m venv .venv
+   .venv/bin/pip install -r requirements.txt
+   ```
+
+2. Конфиг:
+
+   ```bash
+   mkdir -p ~/.config/kicad-net-exporter
+   cp packaging/linux/config.example.yaml ~/.config/kicad-net-exporter/config.yaml
+   ```
+
+   Затем прописать свои проекты. Пути можно писать через `~`.
+
+3. Разовая проверка (отчёты появятся в `output_dir`):
+
+   ```bash
+   .venv/bin/python run.py ~/.config/kicad-net-exporter/config.yaml --once
+   ```
+
+4. Установка systemd user unit:
+
+   ```bash
+   mkdir -p ~/.config/systemd/user
+   cp packaging/linux/kicad-net-exporter.service ~/.config/systemd/user/
+   ```
+
+   Поправить пути в unit-файле, затем:
+
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user enable --now kicad-net-exporter
+   ```
+
+5. Логи и перезапуск:
+
+   ```bash
+   journalctl --user -u kicad-net-exporter -f
+   # после правки конфига:
+   systemctl --user restart kicad-net-exporter
+   ```
+
+На Linux нет трея, окна настроек и уведомлений об устаревшем нетлисте.
+
+> **Syncthing.** Если демон запущен и на Windows, и на Linux над одной
+> синхронизируемой папкой, каждый экспорт нетлиста перегенерирует `out/` на
+> обеих машинах — отсюда `*.sync-conflict-*` в `out/` и «лишние» записи в
+> `*_diff.*`. Держите демон запущенным только на той машине, где сейчас идёт
+> работа, либо исключите `out/` из синхронизации через `.stignore`.
+
 ## Что генерируется в output_dir
 
 Для каждого проекта, для каждого включённого формата (`txt`/`json`/`md`):
@@ -111,7 +171,7 @@ pythonw -m netexp.app.main config.yaml
 генерируются в `tests/data.py`.
 
 ```bash
-pip install pytest
+pip install -r requirements-dev.txt
 python -m pytest
 ```
 
@@ -148,6 +208,9 @@ unconnected и power цепи, компонент без footprint, «плохо
 - IPC API KiCad (`kipy`) в 9-й и 10-й версии не поддерживает схемный редактор
   — источник данных для нетлиста/BOM/netclass остаётся файловым (`.net` +
   `.kicad_pro`) на неопределённый срок.
+- Если на момент старта демона файла `.net` ещё нет, он не попадёт в
+  отслеживаемые (`watch_map`), и изменения по нему будут игнорироваться до
+  перезапуска. Поведение одинаково на Windows и Linux.
 
 ## Создание установщика
 
