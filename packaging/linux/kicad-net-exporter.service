@@ -1,0 +1,13 @@
+[Unit]
+Description=KiCad Net Exporter (netlist watcher)
+
+[Service]
+Type=simple
+# Пути — поправить под себя. %h = домашняя директория.
+ExecStart=%h/Projects/Python/KiCadNetExporter/.venv/bin/python %h/Projects/Python/KiCadNetExporter/run.py %h/.config/kicad-net-exporter/config.yaml --no-tray
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

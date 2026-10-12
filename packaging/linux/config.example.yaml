@@ -1,0 +1,91 @@
+# Пример конфига KiCad Net Exporter для Linux (запуск как демон под systemd).
+#
+# Скопируйте в ~/.config/kicad-net-exporter/config.yaml и поправьте пути.
+# Отличия от корневого config.example.yaml:
+#   - projects — реальные проекты из ~/Projects/KiCad (записаны через ~);
+#     каталог Libraries пропущен, у каждого проекта рядом лежит .net;
+#   - logging.console включён (под systemd stdout уходит в journalctl),
+#     logging.file пуст — хватает журнала;
+#   - секция tray оставлена для совместимости, на Linux она игнорируется.
+#
+# Пути с ~ раскрываются при загрузке конфига (load_config).
+
+projects:
+  - name: 3CH-AWG-TIA-v101
+    kicad_project: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/3CH-AWG-TIA-v101.kicad_pro"
+    netlist: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/3CH-AWG-TIA-v101.net"
+    output_dir: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v101/out"
+
+  - name: 3CH-AWG-TIA-v103
+    kicad_project: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v103/3CH-AWG-TIA-v103.kicad_pro"
+    netlist: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v103/3CH-AWG-TIA-v103.net"
+    output_dir: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v103/out"
+
+  - name: 3CH-AWG-TIA-v104
+    kicad_project: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v104/3CH-AWG-TIA-v104.kicad_pro"
+    netlist: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v104/3CH-AWG-TIA-v104.net"
+    output_dir: "~/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v104/out"
+
+  - name: ADA4807-Exciter
+    kicad_project: "~/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/ADA4807-Exciter.kicad_pro"
+    netlist: "~/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/ADA4807-Exciter.net"
+    output_dir: "~/Projects/KiCad/3CH-AWG-TIA/ADA4807-Exciter/out"
+
+  - name: ControllerESP32
+    kicad_project: "~/Projects/KiCad/HeatingTable/ControllerESP32/ControllerESP32.kicad_pro"
+    netlist: "~/Projects/KiCad/HeatingTable/ControllerESP32/ControllerESP32.net"
+    output_dir: "~/Projects/KiCad/HeatingTable/ControllerESP32/out"
+
+  - name: Power
+    kicad_project: "~/Projects/KiCad/HeatingTable/Power/Power.kicad_pro"
+    netlist: "~/Projects/KiCad/HeatingTable/Power/Power.net"
+    output_dir: "~/Projects/KiCad/HeatingTable/Power/out"
+
+  - name: HiPiMS-v099
+    kicad_project: "~/Projects/KiCad/HiPIMS/HiPiMS-v099/HiPiMS-v099.kicad_pro"
+    netlist: "~/Projects/KiCad/HiPIMS/HiPiMS-v099/HiPiMS-v099.net"
+    output_dir: "~/Projects/KiCad/HiPIMS/HiPiMS-v099/out"
+
+  - name: Power-Board-v099
+    kicad_project: "~/Projects/KiCad/HiPIMS/Power-Board-v099/Power-Board-v099.kicad_pro"
+    netlist: "~/Projects/KiCad/HiPIMS/Power-Board-v099/Power-Board-v099.net"
+    output_dir: "~/Projects/KiCad/HiPIMS/Power-Board-v099/out"
+
+# Какие форматы отчётов генерировать. txt — для человека, json — для
+# скриптов/ИИ, md — то же самое, что txt, но с markdown-разметкой.
+output:
+  formats: [txt, json]
+  raw_txt_copy: false   # копировать *.net -> *.txt как есть (с сохранением mtime)
+  diff: true             # писать <base>_diff.* с изменениями от прошлого прогона
+
+# Паттерны, определяющие "служебные" категории цепей. Не хардкод в коде —
+# правишь тут, без правки Python.
+classification:
+  power_patterns:
+    - "(?i)^GND$"
+    - "(?i)^\\+?\\d+V\\d*"
+    - "(?i)VCC|VDD|VEE|VSS"
+  suspicious_patterns:          # цепи в классе Default, которые стоит проверить руками
+    - "(?i)net-\\("
+    - "(?i)[+-]\\d+v"
+    - "(?i)clk|clock"
+    - "(?i)pwr|vcc|vdd|vee"
+
+# Слежение за файлами (.net и .kicad_pro каждого проекта).
+watch:
+  enabled: true
+  debounce_sec: 1.0        # игнорировать повторные события за это время (дребезг сохранения)
+  settle_delay_sec: 0.2    # пауза перед чтением файла (дать KiCad дописать)
+
+# Логирование. Под systemd достаточно журнала: console -> journalctl.
+logging:
+  level: INFO
+  file: ""                  # пусто — файловый лог отключён, всё идёт в stdout/journalctl
+  max_bytes: 1048576
+  backup_count: 3
+  console: true
+
+# Иконка в трее. На Linux трей не поддерживается — секция игнорируется,
+# приложение работает как демон без UI.
+tray:
+  enabled: true
