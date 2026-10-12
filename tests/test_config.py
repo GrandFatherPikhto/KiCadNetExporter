@@ -2,6 +2,8 @@
 validate_new_project."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from netexp.app.config import (
@@ -147,10 +149,13 @@ class TestTildeExpansion:
             "  file: '~/logs/app.log'\n"
         )))
 
-        assert cfg.projects[0].kicad_project == str(tmp_path / "proj" / "demo.kicad_pro")
-        assert cfg.projects[0].netlist == str(tmp_path / "proj" / "demo.net")
-        assert cfg.projects[0].output_dir == str(tmp_path / "proj" / "out")
-        assert cfg.logging.file == str(tmp_path / "logs" / "app.log")
+        # Сравниваем через Path, а не строки: на Windows ntpath.expanduser
+        # оставляет часть разделителей как '/', и дословное равенство строк с
+        # '\' не проходит (путь при этом абсолютный и рабочий).
+        assert Path(cfg.projects[0].kicad_project) == tmp_path / "proj" / "demo.kicad_pro"
+        assert Path(cfg.projects[0].netlist) == tmp_path / "proj" / "demo.net"
+        assert Path(cfg.projects[0].output_dir) == tmp_path / "proj" / "out"
+        assert Path(cfg.logging.file) == tmp_path / "logs" / "app.log"
 
     def test_default_output_dir_expanded_from_netlist(self, tmp_path, monkeypatch):
         self._set_home(monkeypatch, tmp_path)
@@ -160,7 +165,7 @@ class TestTildeExpansion:
             "  - kicad_project: '~/proj/b.kicad_pro'\n"
             "    netlist: '~/proj/b.net'\n"
         )))
-        assert cfg.projects[0].output_dir == str(tmp_path / "proj" / "out")
+        assert Path(cfg.projects[0].output_dir) == tmp_path / "proj" / "out"
 
     def test_write_paths_keep_tilde(self, tmp_path):
         # append/update_project НЕ раскрывают ~ — в YAML пишем то, что ввёл
