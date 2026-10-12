@@ -157,6 +157,12 @@ class TestTildeExpansion:
         assert Path(cfg.projects[0].output_dir) == tmp_path / "proj" / "out"
         assert Path(cfg.logging.file) == tmp_path / "logs" / "app.log"
 
+        # ~ действительно раскрылся, а не остался в строке как есть
+        assert "~" not in cfg.projects[0].kicad_project
+        assert "~" not in cfg.projects[0].netlist
+        assert "~" not in cfg.projects[0].output_dir
+        assert "~" not in cfg.logging.file
+
     def test_default_output_dir_expanded_from_netlist(self, tmp_path, monkeypatch):
         self._set_home(monkeypatch, tmp_path)
         # output_dir не задан — дефолт <netlist>/../out должен раскрыться тоже
@@ -166,6 +172,7 @@ class TestTildeExpansion:
             "    netlist: '~/proj/b.net'\n"
         )))
         assert Path(cfg.projects[0].output_dir) == tmp_path / "proj" / "out"
+        assert "~" not in cfg.projects[0].output_dir
 
     def test_write_paths_keep_tilde(self, tmp_path):
         # append/update_project НЕ раскрывают ~ — в YAML пишем то, что ввёл
