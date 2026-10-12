@@ -125,6 +125,62 @@ class TestLoadConfig:
         assert cfg.classification.power_patterns  # не пусто по умолчанию
 
 
+class TestTildeExpansion:
+    """~ в путях конфига раскрывается при загрузке (удобно для ~/.config на
+    Linux). На Windows expanduser смотрит на USERPROFILE, поэтому выставляем
+    обе переменные — тест одинаково работает на обеих платформах."""
+
+    @staticmethod
+    def _set_home(monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+    def test_project_and_logging_paths_expanded(self, tmp_path, monkeypatch):
+        self._set_home(monkeypatch, tmp_path)
+        cfg = load_config(_write(tmp_path, (
+            "projects:\n"
+            "  - name: demo\n"
+            "    kicad_project: '~/proj/demo.kicad_pro'\n"
+            "    netlist: '~/proj/demo.net'\n"
+            "    output_dir: '~/proj/out'\n"
+            "logging:\n"
+            "  file: '~/logs/app.log'\n"
+        )))
+
+        assert cfg.projects[0].kicad_project == str(tmp_path / "proj" / "demo.kicad_pro")
+        assert cfg.projects[0].netlist == str(tmp_path / "proj" / "demo.net")
+        assert cfg.projects[0].output_dir == str(tmp_path / "proj" / "out")
+        assert cfg.logging.file == str(tmp_path / "logs" / "app.log")
+
+    def test_default_output_dir_expanded_from_netlist(self, tmp_path, monkeypatch):
+        self._set_home(monkeypatch, tmp_path)
+        # output_dir не задан — дефолт <netlist>/../out должен раскрыться тоже
+        cfg = load_config(_write(tmp_path, (
+            "projects:\n"
+            "  - kicad_project: '~/proj/b.kicad_pro'\n"
+            "    netlist: '~/proj/b.net'\n"
+        )))
+        assert cfg.projects[0].output_dir == str(tmp_path / "proj" / "out")
+
+    def test_write_paths_keep_tilde(self, tmp_path):
+        # append/update_project НЕ раскрывают ~ — в YAML пишем то, что ввёл
+        # пользователь, раскрытие происходит только при чтении (load_config).
+        p = tmp_path / "config.yaml"
+        p.write_text(
+            "projects:\n  - name: demo\n    kicad_project: a.kicad_pro\n"
+            "    netlist: a.net\n    output_dir: out\n",
+            encoding="utf-8",
+        )
+        append_project(p, ProjectConfig(
+            name="tilde", kicad_project="~/x.kicad_pro",
+            netlist="~/x.net", output_dir="~/x_out",
+        ))
+        text = p.read_text(encoding="utf-8")
+        assert "~/x.kicad_pro" in text
+        assert "~/x.net" in text
+        assert "~/x_out" in text
+
+
 class TestAppendProject:
     CONFIG_WITH_COMMENTS = """\
 # Шапка — комментарий, который нельзя терять.

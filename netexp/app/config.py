@@ -91,15 +91,20 @@ def load_config(path: str | Path) -> AppConfig:
     if not projects_raw:
         raise ValueError(f"В конфиге {path} не задано ни одного проекта (секция 'projects')")
 
-    projects = [
-        ProjectConfig(
-            name=_get(p, "name", Path(p["netlist"]).stem),
-            kicad_project=p["kicad_project"],
-            netlist=p["netlist"],
-            output_dir=_get(p, "output_dir", str(Path(p["netlist"]).parent / "out")),
-        )
-        for p in projects_raw
-    ]
+    # Пути в конфиге можно писать через ~ (удобно для ~/.config/... на Linux);
+    # раскрываем их здесь, а в append/update_project записываем ровно то, что
+    # ввёл пользователь. Дефолтный output_dir считается уже от раскрытого
+    # netlist, чтобы «~/.../out» тоже стал абсолютным.
+    projects = []
+    for p in projects_raw:
+        netlist = os.path.expanduser(p["netlist"])
+        projects.append(ProjectConfig(
+            name=_get(p, "name", Path(netlist).stem),
+            kicad_project=os.path.expanduser(p["kicad_project"]),
+            netlist=netlist,
+            output_dir=os.path.expanduser(
+                _get(p, "output_dir", str(Path(netlist).parent / "out"))),
+        ))
 
     out_raw = raw.get("output", {}) or {}
     output = OutputConfig(
@@ -124,7 +129,7 @@ def load_config(path: str | Path) -> AppConfig:
     log_raw = raw.get("logging", {}) or {}
     logging_cfg = LoggingConfig(
         level=_get(log_raw, "level", "INFO"),
-        file=_get(log_raw, "file", "kicad_net_exporter.log"),
+        file=os.path.expanduser(_get(log_raw, "file", "kicad_net_exporter.log")),
         max_bytes=_get(log_raw, "max_bytes", 1_048_576),
         backup_count=_get(log_raw, "backup_count", 3),
         console=_get(log_raw, "console", True),
