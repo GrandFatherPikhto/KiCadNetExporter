@@ -30,7 +30,16 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run tests
-        run: python -m pytest -q
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q > pytest.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            tail -n 60 pytest.log >&2
+            grep -aE "^(FAILED|ERROR) " pytest.log | while IFS= read -r l; do echo "::error::$l"; done
+          fi
+          exit $rc
 
       # Проверка платформенных зависимостей: на Windows трей должен
       # импортироваться (pystray/pillow стоят), импорт tray.py окно не создаёт
