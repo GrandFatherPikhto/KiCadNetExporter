@@ -3,15 +3,29 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
+import sys
 import threading
 from pathlib import Path
 
-from .config import load_config
+from .config import AppConfig, load_config
 from .logging_setup import setup_logging
 from .pipeline import run_project
 from .watcher import WatchHandle, run_watch_loop
 
 logger = logging.getLogger(__name__)
+
+
+def should_run_tray(config: AppConfig, no_tray: bool, platform: str | None = None) -> bool:
+    """Нужно ли поднимать трей на текущей платформе.
+
+    Трей (pystray + Tk) поддерживается только на Windows: на Linux он не нужен
+    и тянул бы GUI-зависимости. Решение вынесено в чистую функцию, чтобы
+    тестировать его без pystray/tkinter (через monkeypatch sys.platform).
+    """
+    if platform is None:
+        platform = sys.platform
+    return platform == "win32" and config.tray.enabled and not no_tray
 
 
 def main() -> None:
@@ -52,13 +66,17 @@ def main() -> None:
     watch_handle = WatchHandle()
 
     icon = None
-    if config.tray.enabled and not args.no_tray:
+    if should_run_tray(config, args.no_tray):
         try:
             from .tray import build_icon
             icon = build_icon(config, stop_flag, paused, log_path,
                               config_path=config_path, watch_handle=watch_handle)
         except Exception:
             logger.exception("Не удалось создать иконку в трее — работаю без неё")
+    elif config.tray.enabled and not args.no_tray:
+        # Трей включён в конфиге и не отключён --no-tray, но платформа его не
+        # поддерживает — сообщаем один раз и работаем как демон без UI.
+        logger.info("Трей на этой платформе не поддерживается — работаю как демон (без UI)")
 
     def on_stale(project_name: str, message: str) -> None:
         if icon is not None:
@@ -78,6 +96,14 @@ def main() -> None:
     if icon is not None:
         icon.run()
     else:
+        # systemd останавливает процесс сигналом SIGTERM. Без обработчика
+        # процесс умирает мгновенно, не останавливая observer (в лог не
+        # попадает «Наблюдатель остановлен»). Регистрируем из главного потока
+        # — signal.signal() требует этого. SIGHUP ставим, если он есть (на
+        # Windows его нет); перезагрузку конфига по нему не делаем.
+        signal.signal(signal.SIGTERM, lambda *_: stop_flag.set())
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, lambda *_: stop_flag.set())
         try:
             while not stop_flag.is_set():
                 stop_flag.wait(1)
